@@ -4,13 +4,47 @@
 
 簡單說：**你丟一句話給它，它會自己查論文、寫程式、跑實驗、寫報告**。
 
-整個流程全自動，你不需要動手。它背後有一個「主管」（Supervisor）會把你的目標拆成一堆小任務，然後分配給三個「工人」去做：
+整個流程全自動，你不需要動手。它背後有一個「主管」（Supervisor），像真正的研究人員一樣 **自主思考、靈活應變**：做得不好會重來，搜得不夠會再搜，code 跑失敗會自己修，有階段成果就寫報告。
+
+### 三個工人
 
 | 工人 | 他會做什麼 | 實際用的工具 |
 |------|-----------|-------------|
 | **Explorer（探索者）** | 搜論文、搜 dataset、搜 GitHub repo | arXiv API、Semantic Scholar API、OpenAlex API、HuggingFace API、GitHub API |
-| **Coder（寫程式的）** | 寫 Python 程式碼、執行、debug | `run_python_code`（真的會跑 subprocess）、`write_file`、`read_file` |
+| **Coder（寫程式的）** | 寫 Python 程式碼、執行、debug、用 GPU 加速 | `run_python_code`（支援 torch/numpy 等套件）、`pip_install`、`write_file`、`read_file` |
 | **Reviewer（審查者）** | 跑 benchmark、評估結果、分析好壞 | 跟 Coder 一樣的工具 + HuggingFace datasets + LeetCode/HumanEval 題目 |
+
+### 硬體感知
+
+系統啟動時會自動偵測你的硬體，告訴 Coder/Reviewer：
+
+- **Apple Silicon Mac** → 自動用 `torch.device("mps")` 加速
+- **NVIDIA GPU** → 自動用 `torch.device("cuda")`
+- **沒有 GPU** → 用 CPU，不會傻傻寫 GPU code 然後報錯
+
+### Supervisor 怎麼運作（像研究人員一樣）
+
+**不是固定流水線！** 每一輪 Supervisor 會看目前所有成果，然後自己決定下一步：
+
+```
+每一輪（cycle）：
+  Supervisor 看「目標 + 已完成任務 + 錯誤 + 知識庫」
+  然後自己決定：
+
+  "論文搜得不夠"        → 派 Explorer 再搜
+  "有想法了，來寫 code"  → 派 Coder 實作
+  "code 跑失敗了"       → 派 Coder 帶著 error 去修（不是放棄！）
+  "跑出來了，測一下"     → 派 Reviewer 跑 benchmark
+  "結果不好"            → 派 Coder 改進，或 Explorer 找更好的方法
+  "方向不對"            → 重新規劃（replan）
+  "有階段成果了"         → 寫一份中間報告
+  "目標達成"            → 寫最終報告 → 結束
+```
+
+**每一輪都會存 checkpoint**，所以：
+- `Ctrl+C` 隨時中斷都安全
+- `--resume` 從斷點精確繼續（恢復所有已完成任務、錯誤、進度）
+- 關機、斷電、網路斷都不怕
 
 ### 舉個例子
 
@@ -19,23 +53,26 @@
 python3 main.py "研究 Flash Attention 優化方法，然後實作一個簡化版並跑 benchmark"
 ```
 
-系統會自動做這些事：
+系統可能會這樣跑（**每一步都是 LLM 自己決定的**，不是寫死的）：
 
-1. **Supervisor 拆解任務**（用 LLM 決定）：
-   - 任務 1 → Explorer：去 arXiv 和 Semantic Scholar 搜 Flash Attention 相關論文
-   - 任務 2 → Explorer：搜 GitHub 上的 Flash Attention 實作
-   - 任務 3 → Coder：根據論文寫一個簡化版 Flash Attention（Python）
-   - 任務 4 → Coder：寫一個 naive attention 做對照
-   - 任務 5 → Reviewer：跑 benchmark 比較兩個版本的速度差異
+```
+Cycle 1: search_more → Explorer 去 arXiv 搜 Flash Attention 論文
+Cycle 2: search_more → Explorer 去 GitHub 搜參考實作
+Cycle 3: implement   → Coder 根據論文寫 Flash Attention（用 MPS 加速）
+Cycle 4: fix_code    → 上一輪 code 有 bug，Coder 拿到 error 重修
+Cycle 5: implement   → Coder 寫 naive attention 做對照
+Cycle 6: benchmark   → Reviewer 跑 benchmark 比較兩個版本
+Cycle 7: improve     → 結果差距不大，Coder 優化實作（加 tiling）
+Cycle 8: benchmark   → Reviewer 重新跑 benchmark
+Cycle 9: report      → 有階段成果，寫中間報告
+Cycle 10: done       → 結果夠好了，寫最終報告
+```
 
-2. **每個工人會自己呼叫工具**：
-   - Explorer 真的會打 arXiv API 拿到論文標題、作者、摘要
-   - Coder 真的會寫 Python code 然後 `run_python_code` 跑起來，有 bug 會自己修
-   - Reviewer 真的會寫測試程式碼跑 benchmark 然後分析結果
-
-3. **所有結果自動存到知識庫**（Knowledge Tree）
-
-4. **最後產出一份 Markdown 報告**
+如果中途 Ctrl+C 斷在 Cycle 6：
+```bash
+python3 main.py --resume flash
+# → 從 Cycle 7 繼續，之前的 5 個任務結果都還在
+```
 
 ---
 
@@ -62,11 +99,17 @@ echo "sk-你的key" > ../apikey.txt
 
 ### 第三步：直接跑
 
-不用裝任何套件！全部用 Python 標準庫。只要你有 Python 3.11+：
+Python 3.11+ 即可。如果你要跑 ML 相關的實驗，建議先裝 torch：
 
 ```bash
+# 基本（不跑 GPU code 也行）
 python3 main.py "你的研究目標"
+
+# 建議：裝好 ML 套件讓 Coder 能寫 torch code
+pip install torch numpy matplotlib
 ```
+
+系統會自動偵測哪些套件已裝、有什麼 GPU，然後告訴 LLM。
 
 ---
 
@@ -365,19 +408,22 @@ python3 agent.py "搜尋 2025 年最新的 LLM 量化方法論文"
 - 搜尋 HuggingFace 上的 dataset
 - 搜尋 GitHub repo 和 code（有速率限制：每分鐘 10 次）
 - 用 `subprocess` 跑 Python 程式碼（**真的會執行，不是模擬**）
-- 寫檔案到 workspace
-- 讀取 workspace 的檔案
-- 抓 LeetCode 題目
-- 抓 HumanEval benchmark 範例
+- **可以用 torch、numpy 等外部套件**（系統會偵測已安裝的套件）
+- **可以用 `pip_install` 工具裝套件**（Coder 發現缺套件會自己裝）
+- **自動偵測 GPU**：MPS（Mac）或 CUDA（NVIDIA），寫 code 會自動用對的 device
+- 寫檔案到 workspace / 讀取 workspace 的檔案
+- 抓 LeetCode 題目 / HumanEval benchmark 範例
+- **code 跑失敗會自己修**：Supervisor 看到 error 會派 Coder 帶著 error 重寫
+- **結果不好會迭代改進**：不會跑一次就結束，會反覆改到滿意
 
 ### 限制
 
-- **只能用 Python 標準庫**：`run_python_code` 不能 import numpy、torch 等外部套件
 - **沒有網頁瀏覽**：不能打開任意 URL，只能用上面列的那些 API
 - **沒有 PDF 下載**：能找到論文的 arXiv 連結，但不會去下載 PDF 全文
-- **30 秒 timeout**：程式碼執行最長 30 秒，跑不完就會被 kill
+- **5 分鐘 timeout**：程式碼執行最長 300 秒，超大模型訓練可能不夠
 - **LLM 品質取決於 MiniMax**：如果 LLM 回答品質不好，寫出來的程式碼也會不好
-- **每個 worker 最多 10 輪對話**：一個任務裡如果 bug 太多修不完，就會放棄
+- **每個 worker 單次任務最多 10 輪對話**：但 Supervisor 可以多次派同一個 worker
+- **最多 30 個 cycle**：Supervisor 最多跑 30 輪（可用 `--max-cycles` 調整）
 
 ---
 
