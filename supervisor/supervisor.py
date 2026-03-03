@@ -98,6 +98,8 @@ class Supervisor:
         self.reports_generated: int = 0
         self.cycle = 0
         self.max_cycles = 30
+        self._last_action: str = ""
+        self._repeat_count: int = 0
 
     # ── Full-state checkpoint ────────────────────────────────────────
 
@@ -113,6 +115,8 @@ class Supervisor:
             "task_queue": [_serialize_task(t) for t in self.task_queue],
             "errors": self.errors,
             "reports_generated": self.reports_generated,
+            "last_action": self._last_action,
+            "repeat_count": self._repeat_count,
             "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         }
         self.state.checkpoint("mission", data)
@@ -137,6 +141,8 @@ class Supervisor:
         self.task_queue = cp.get("task_queue", [])
         self.errors = cp.get("errors", [])
         self.reports_generated = cp.get("reports_generated", 0)
+        self._last_action = cp.get("last_action", "")
+        self._repeat_count = cp.get("repeat_count", 0)
 
     # ── Main entry points ────────────────────────────────────────────
 
@@ -214,6 +220,26 @@ class Supervisor:
             # ── Reflect & Decide ──────────────────────────────────
             action = self._reflect_and_decide()
             action_type = action.get("action", "done")
+
+            # Anti-loop: if same action repeats 2+ times, force progress
+            if action_type == self._last_action:
+                self._repeat_count += 1
+            else:
+                self._repeat_count = 0
+            self._last_action = action_type
+
+            if self._repeat_count >= 2:
+                if action_type == "report":
+                    # Already wrote report, time to finish
+                    action = {"action": "done", "reason": "Report already written, mission complete"}
+                    action_type = "done"
+                elif action_type == "search_more":
+                    # Enough searching, time to implement
+                    action = {"action": "implement",
+                              "task": f"Based on research so far, implement: {self.direction}",
+                              "reason": "Moving from search to implementation"}
+                    action_type = "implement"
+                self._repeat_count = 0
 
             print(f"  [Supervisor] Decision: {action_type}")
             if action.get("reason"):
