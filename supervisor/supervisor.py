@@ -368,16 +368,21 @@ Choose ONE action (the most important next step):
 - "improve": Results aren't good enough. Specify what to improve.
 - "replan": Current approach isn't working, need a new plan.
 - "report": Meaningful progress reached, write an interim report.
-- "done": Research goal is achieved with sufficient results.
+- "done": Research goal is FULLY achieved — has code, experiments, AND results.
 
-## Decision Guidelines
+## Decision Guidelines — IMPORTANT
+- The goal usually requires BOTH literature search AND code implementation AND evaluation
+- NEVER choose "done" if you only searched papers but haven't written code yet!
+- NEVER choose "done" if you wrote code but haven't run benchmarks/tests!
+- Typical flow: search → implement → test → improve → benchmark → report → done
 - If no papers/info yet → search_more
+- After 2-3 rounds of search → move to "implement" even if search isn't perfect
 - If code failed → fix_code (include the error)
 - If results are poor → improve or search_more for better approaches
-- If benchmark shows good results → report or done
+- If benchmark shows good results → report, then done
 - Write "report" when there's meaningful progress worth saving
-- Only "done" when the goal is genuinely achieved with solid results
 - Don't repeat the same failed approach — try something different
+- "done" requires: papers found + code written + code runs successfully + results analyzed
 
 Respond with ONLY JSON:
 {{"action": "...", "task": "specific description of what to do", "worker": "explorer|coder|reviewer", "reason": "why this action", "error_context": "if fix_code, paste the error"}}

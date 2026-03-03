@@ -17,9 +17,11 @@ def strip_think(text: str) -> str:
 
 
 # Max chars per tool result to avoid blowing up context
-_MAX_TOOL_RESULT = 3000
+_MAX_TOOL_RESULT = 4000
 # Max total chars across all messages before we trim old ones
-_MAX_CONTEXT_CHARS = 60000
+# MiniMax-M2.5-highspeed has 204,800 token context window (~600K chars)
+# We keep a generous buffer but still trim to stay safe
+_MAX_CONTEXT_CHARS = 150000
 
 
 def _estimate_chars(messages: list) -> int:

@@ -27,7 +27,7 @@ def _load_api_key() -> str:
 
 API_KEY = _load_api_key()
 BASE_URL = os.environ.get("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
-MODEL = os.environ.get("MINIMAX_MODEL", "MiniMax-M2.5")
+MODEL = os.environ.get("MINIMAX_MODEL", "MiniMax-M2.5-highspeed")
 
 # ── Runtime Limits ──────────────────────────────────────────────────
 MAX_TURNS = int(os.environ.get("MAX_TURNS", "10"))
