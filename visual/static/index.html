@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Research AI Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+    <!-- Top Bar -->
+    <header id="topbar">
+        <div class="topbar-left">
+            <h1 class="logo">Research AI</h1>
+        </div>
+        <div class="topbar-center" id="topbar-info">
+            <span class="mission-name" id="topbar-mission">Select a mission</span>
+            <span class="status-badge" id="topbar-status" hidden></span>
+        </div>
+        <div class="topbar-right">
+            <div class="cycle-progress" id="topbar-progress" hidden>
+                <span id="progress-label">0/0</span>
+                <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+            </div>
+        </div>
+    </header>
+
+    <div id="layout">
+        <!-- Left Sidebar — Mission List -->
+        <aside id="sidebar">
+            <div class="sidebar-header">
+                <input type="text" id="mission-search" placeholder="Search missions..." autocomplete="off">
+                <select id="mission-sort">
+                    <option value="date">Newest</option>
+                    <option value="name">Name</option>
+                    <option value="status">Status</option>
+                </select>
+            </div>
+            <div id="mission-list" class="mission-list">
+                <div class="empty-state">Loading missions...</div>
+            </div>
+        </aside>
+
+        <!-- Center — Tabbed Content -->
+        <main id="center">
+            <nav class="tab-bar" id="tab-bar">
+                <button class="tab active" data-tab="timeline">Timeline</button>
+                <button class="tab" data-tab="dag">DAG Graph</button>
+                <button class="tab" data-tab="knowledge">Knowledge</button>
+                <button class="tab" data-tab="code">Code</button>
+                <button class="tab" data-tab="reports">Reports</button>
+            </nav>
+            <div class="tab-content" id="tab-content">
+                <!-- Timeline -->
+                <section id="panel-timeline" class="panel active">
+                    <div class="panel-controls">
+                        <label class="filter-label">Worker:
+                            <select id="timeline-worker-filter">
+                                <option value="all">All</option>
+                                <option value="explorer">Explorer</option>
+                                <option value="coder">Coder</option>
+                                <option value="reviewer">Reviewer</option>
+                            </select>
+                        </label>
+                        <label class="filter-label">
+                            <input type="checkbox" id="timeline-show-failures" checked> Show failures
+                        </label>
+                    </div>
+                    <div id="timeline-content" class="panel-body">
+                        <div class="empty-state">Select a mission to view timeline</div>
+                    </div>
+                </section>
+
+                <!-- DAG Graph -->
+                <section id="panel-dag" class="panel">
+                    <div class="panel-controls">
+                        <label class="filter-label">Worker:
+                            <select id="dag-worker-filter">
+                                <option value="all">All</option>
+                                <option value="explorer">Explorer</option>
+                                <option value="coder">Coder</option>
+                                <option value="reviewer">Reviewer</option>
+                            </select>
+                        </label>
+                        <label class="filter-label">
+                            <input type="checkbox" id="dag-show-archived"> Show archived
+                        </label>
+                        <label class="filter-label">Relevance &ge;
+                            <input type="range" id="dag-relevance-slider" min="0" max="1" step="0.05" value="0">
+                            <span id="dag-relevance-value">0.00</span>
+                        </label>
+                    </div>
+                    <div id="dag-content" class="panel-body dag-container">
+                        <div class="empty-state">Select a mission to view DAG</div>
+                    </div>
+                </section>
+
+                <!-- Knowledge -->
+                <section id="panel-knowledge" class="panel">
+                    <div id="knowledge-content" class="panel-body">
+                        <div class="empty-state">Select a mission to view knowledge</div>
+                    </div>
+                </section>
+
+                <!-- Code -->
+                <section id="panel-code" class="panel">
+                    <div id="code-content" class="panel-body">
+                        <div class="empty-state">Select a mission to view code</div>
+                    </div>
+                </section>
+
+                <!-- Reports -->
+                <section id="panel-reports" class="panel">
+                    <div id="reports-content" class="panel-body">
+                        <div class="empty-state">Select a mission to view reports</div>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <!-- Right Panel — Detail View -->
+        <aside id="detail-panel">
+            <div class="detail-header">
+                <h3 id="detail-title">Details</h3>
+                <div class="detail-actions">
+                    <button id="detail-expand" class="btn-icon" title="Expand/Collapse">&#x26F6;</button>
+                    <button id="detail-close" class="btn-icon" title="Close">&times;</button>
+                </div>
+            </div>
+            <div id="detail-body" class="detail-body">
+                <div class="empty-state">Click any item to see details</div>
+            </div>
+            <div id="qa-panel" class="qa-panel">
+                <div id="qa-messages" class="qa-messages"></div>
+                <div class="qa-input-row">
+                    <input type="text" id="qa-input" placeholder="Ask about this item..." autocomplete="off">
+                    <button id="qa-send" class="qa-send-btn">Ask</button>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

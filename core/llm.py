@@ -498,9 +498,29 @@ class MiniMaxClient:
                       f"{_COMPACT_THRESHOLD:,} threshold), compacting...")
                 messages = self.compact_messages(messages, keep_recent=10)
 
+            # ── Reserve last 2 turns for summary (no tools) ───────
+            # This prevents workers from exhausting all turns on tool
+            # calls and never producing a text summary.
+            is_summary_turn = (turn >= max_turns - 1)
+            current_tools = None if is_summary_turn else tools_defs
+
+            if is_summary_turn and turn == max_turns - 1:
+                # Inject a prompt nudge to produce a summary
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "[System] You are running low on turns. "
+                        "Stop using tools and write your FINAL SUMMARY now. "
+                        "Include all key findings, specific numbers, paper titles, "
+                        "file names, and results from your work above. "
+                        "Structure it with ### headers."
+                    ),
+                })
+                print(f"  [LLM] Turn {turn}/{max_turns}: forcing summary (no tools)")
+
             t0 = time.perf_counter()
             try:
-                response = self.chat(messages, tools=tools_defs)
+                response = self.chat(messages, tools=current_tools)
             except Exception as e:
                 print(f"  [LLM] API error on turn {turn}: {e}")
                 # Emergency: compact aggressively and try one more time
@@ -510,7 +530,7 @@ class MiniMaxClient:
                     messages = _trim_messages(messages,
                                               max_chars=_MAX_CONTEXT_CHARS // 3)
                     messages = _sanitize_messages(messages)
-                    response = self.chat(messages, tools=tools_defs)
+                    response = self.chat(messages, tools=current_tools)
                 except Exception as e2:
                     print(f"  [LLM] Recovery failed: {e2}")
                     break

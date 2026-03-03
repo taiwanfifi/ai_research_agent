@@ -63,14 +63,20 @@ Respond with ONLY a JSON array of tasks:
   ...
 ]
 
-Rules:
-- Use "explorer" for searching papers, datasets, repos
-- Use "coder" for implementing algorithms, writing code, running experiments
-- Use "reviewer" for evaluating results, running benchmarks
-- Order by dependency (earlier tasks first)
-- depends_on is a list of task indices (0-based) that must complete first
-- Keep tasks focused and actionable (1 specific thing per task)
-- Usually 3-7 tasks is appropriate
+## Worker Capabilities
+- **explorer**: Searches arxiv, semantic scholar, openalex, GitHub repos. MUST output: paper titles, authors, venues, citations, key contributions, arXiv IDs, relevant GitHub repos with star counts.
+- **coder**: Writes and runs Python code. Has pip_install, write_file, read_file, run_python_code. MUST save all code to workspace with write_file. MUST produce runnable .py files.
+- **reviewer**: Runs benchmarks, evaluates code. Has run_python_code, write_file, read_file. MUST produce quantitative metrics (accuracy, loss, time, etc.) and save results to workspace.
+
+## Planning Rules
+1. **Max 2 explorer tasks** — one broad search, one deep dive. Do NOT waste cycles on repeated searches.
+2. **Coder tasks MUST be specific**: "Implement X using Y library, save as Z.py" not just "implement the algorithm"
+3. **Coder tasks MUST specify expected outputs**: "Save code as lora_finetune.py, run training for N epochs, save loss_curve.png"
+4. **Reviewer tasks MUST specify metrics**: "Measure accuracy, F1, inference time; save results as results.json and comparison_chart.png"
+5. **5-8 tasks is ideal** — distribute as: 1-2 explorer, 2-3 coder, 1-2 reviewer
+6. **Order by dependency** — explorer first, then coder, then reviewer
+7. **Each task description must be self-contained** — a worker should understand what to do without seeing other tasks
+8. The adaptive supervisor will add more tasks as needed, so don't over-plan
 """
 
         response = self.llm.chat([

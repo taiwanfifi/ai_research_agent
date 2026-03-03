@@ -329,7 +329,7 @@ Examples:
     parser.add_argument("--report", action="store_true", help="Generate report for a mission")
     parser.add_argument("--status", "-s", action="store_true", help="Show system status")
     parser.add_argument("--interactive", "-i", action="store_true", help="Interactive mode")
-    parser.add_argument("--max-cycles", type=int, default=20, help="Max supervisor cycles")
+    parser.add_argument("--max-cycles", type=int, default=12, help="Max supervisor cycles (default: 12)")
 
     args = parser.parse_args()
 

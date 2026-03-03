@@ -50,13 +50,15 @@ class AgentState:
 
 def _serialize_task(t: dict) -> dict:
     """Strip non-serializable fields (messages list can be huge)."""
+    success = t.get("success")
     return {
         "worker": t.get("worker", ""),
         "task": t.get("task", ""),
         "priority": t.get("priority", 0),
         "depends_on": t.get("depends_on", []),
-        "success": t.get("success"),
-        "output": (t.get("output") or "")[:500],
+        "success": success,
+        "status": "done" if success else ("failed" if success is False else "pending"),
+        "output": (t.get("output") or "")[:2000],
         "elapsed_s": t.get("elapsed_s"),
         "error": t.get("error"),
     }
@@ -85,7 +87,9 @@ class Supervisor:
         self.mission_manager = mission_manager
 
         language = mission_ctx.language if mission_ctx else "en"
-        self.reporter = Reporter(reports_dir, language=language)
+        workspace_dir = mission_ctx.workspace_dir if mission_ctx else None
+        self.reporter = Reporter(reports_dir, language=language,
+                                 workspace_dir=workspace_dir)
         self.planner = TaskPlanner(llm)
 
         # Workers
@@ -111,9 +115,12 @@ class Supervisor:
         self.errors: list[str] = []
         self.reports_generated: int = 0
         self.cycle = 0
-        self.max_cycles = 30
+        self.max_cycles = 12
         self._last_action: str = ""
         self._repeat_count: int = 0
+
+        # Failure tracking for smarter pivoting
+        self._consecutive_failures: dict = {}  # worker_name → count
 
         # ── Memory Distillation (DAG-based) ──────────────────────
         # Structured insight graph with relevance scoring
@@ -142,6 +149,7 @@ class Supervisor:
             "insight_dag": self.insight_dag.to_dict(),
             "working_memory": self.working_memory,
             "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "consecutive_failures": self._consecutive_failures,
         }
         self.state.checkpoint("mission", data)
 
@@ -167,6 +175,7 @@ class Supervisor:
         self.reports_generated = cp.get("reports_generated", 0)
         self._last_action = cp.get("last_action", "")
         self._repeat_count = cp.get("repeat_count", 0)
+        self._consecutive_failures = cp.get("consecutive_failures", {})
         # Restore memory — try DAG format first, fall back to legacy list
         if "insight_dag" in cp:
             self.insight_dag = InsightDAG.from_dict(cp["insight_dag"])
@@ -377,10 +386,28 @@ class Supervisor:
         do next. This is the researcher's "lab notebook entry".
         Added to the InsightDAG with auto-generated tags and references.
         """
-        output = (result.get("output") or "")[:1500]
+        output = (result.get("output") or "")[:3000]
         error = result.get("error", "")
         success = result.get("success", False)
         elapsed = result.get("elapsed_s", 0)
+
+        # Build workspace context: list what files exist after this task
+        workspace_files = ""
+        if self.mission_ctx:
+            ws_dir = self.mission_ctx.workspace_dir
+            try:
+                import os
+                files = []
+                for root, dirs, fnames in os.walk(ws_dir):
+                    for fn in fnames:
+                        if '__pycache__' not in root and not fn.startswith('.') and '.code_store' not in root:
+                            rel = os.path.relpath(os.path.join(root, fn), ws_dir)
+                            sz = os.path.getsize(os.path.join(root, fn))
+                            files.append(f"{rel} ({sz}B)")
+                if files:
+                    workspace_files = f"\nWorkspace files: {', '.join(files)}"
+            except Exception:
+                pass
 
         prompt = f"""A research worker just completed a task. Extract the KEY INSIGHT from this result.
 
@@ -390,14 +417,16 @@ Status: {"SUCCESS" if success else "FAILED"}
 Time: {elapsed:.1f}s
 Output: {output}
 {"Error: " + error if error else ""}
+{workspace_files}
 
-Write a concise insight (2-4 sentences) that captures:
-- What was accomplished or discovered
-- Key numbers, findings, or results (be specific!)
-- What this means for the overall research direction
-- If failed: what went wrong and what to try differently
+Extract a concise insight (3-5 sentences) that MUST include:
+1. **Specific results**: exact numbers (accuracy=X%, loss=Y, time=Zs), file names created, paper titles found
+2. **What was accomplished**: concrete deliverables, not vague descriptions
+3. **Implications**: what this means for the next step
+4. If failed: exact error and what to try differently
 
-Be specific and factual. This insight will guide future decisions.
+CRITICAL: Include ALL numbers and file names from the output. Do NOT write vague statements like "the experiment was successful" — instead write "achieved 85.3% accuracy on CIFAR-10 with CLIP zero-shot, saved confusion_matrix.png".
+
 Write the insight directly, no JSON or formatting needed."""
 
         try:
@@ -582,12 +611,23 @@ Write the working_memory as bullet points. Be concise but complete."""
                 if cross_parts:
                     cross_info = "Knowledge from other missions:\n" + "\n".join(cross_parts)
 
+        # Build failure escalation warning
+        failure_warnings = ""
+        for wname, fcount in self._consecutive_failures.items():
+            if fcount >= 2:
+                failure_warnings += (
+                    f"\n⚠️ {wname} has failed {fcount} times in a row. "
+                    f"DO NOT dispatch {wname} with the same approach. "
+                    f"Either use a different worker or fundamentally change the task."
+                )
+
         prompt = f"""You are a research supervisor. Based on your working memory (distilled insights from all past work), decide the single best next action.
 
 ## Mission
 - Goal: {self.goal}
 - Direction: {self.direction}
 - Cycle: {self.cycle}/{self.max_cycles}
+{failure_warnings}
 
 ## Your Working Memory (distilled insights)
 {self.working_memory or "(no insights yet — this is the first cycle)"}
@@ -624,6 +664,19 @@ Choose ONE action:
 - If code failed → "fix_code"
 - If results poor → "improve" or "search_more"
 - "done" = papers + code + tests + results analyzed
+
+## Research Quality Rules (CRITICAL)
+When evaluating if the current direction is working, watch for these failure patterns:
+
+**Type A — Ceiling Too Low**: Are we trying to improve a mature system by < 5%? If manual tuning can achieve similar results, the ceiling is too low. PIVOT to a different approach.
+
+**Type B — Artifact/Unfair Comparison**: Are our positive results coming from unfair baselines? If comparing against the weakest baseline instead of the strongest, results are meaningless. ALWAYS compare against the STRONGEST known baseline.
+
+**Type C — Wrong Hypothesis**: Did results contradict our hypothesis? If so, don't retry the same approach — PIVOT fundamentally.
+
+**Success Formula**: Look for Natural Data Structure × Right Representation × Real System Constraint. If any is missing, the direction will likely fail.
+
+If you detect any of these patterns in the working memory or past results, choose "replan" with a clear explanation of which failure type was detected.
 
 Respond with ONLY JSON:
 {{"action": "...", "task": "specific description", "worker": "explorer|coder|reviewer", "reason": "why this action based on your working memory", "error_context": "if fix_code"}}
@@ -716,6 +769,17 @@ Respond with ONLY JSON:
             error_msg = f"[{worker_name}] {task_desc[:60]}: {result.get('error', 'unknown')}"
             self.errors.append(error_msg)
             print(f"  [Supervisor] ✗ {worker_name} failed: {result.get('error', '')[:100]}")
+
+        # Track consecutive failures for smarter pivoting
+        if result.get("success"):
+            self._consecutive_failures[worker_name] = 0
+        else:
+            self._consecutive_failures[worker_name] = \
+                self._consecutive_failures.get(worker_name, 0) + 1
+            fail_count = self._consecutive_failures[worker_name]
+            if fail_count >= 2:
+                print(f"  [Supervisor] WARNING: {worker_name} has failed {fail_count} times consecutively!")
+                print(f"  [Supervisor] Will escalate on next cycle — trying different approach")
 
         # Always extract insight, whether success or failure
         self._extract_insight(worker_name, task_desc, result)

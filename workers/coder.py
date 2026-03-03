@@ -43,6 +43,23 @@ class CoderWorker(BaseWorker):
 5. Execute the code and verify results
 6. If there are errors, analyze and fix them
 7. Report results with metrics (time, memory, device used)
+8. **ALWAYS use write_file to save your final code** — do NOT just run code without saving it
+
+## CRITICAL: Figure Generation Rules
+- **NEVER use plt.show()** — it blocks execution and opens a window
+- **ALWAYS use plt.savefig('filename.png', dpi=150, bbox_inches='tight')** then plt.close()
+- **ALL text in figures MUST be in English** — titles, labels, legends, annotations
+- Save figures to the workspace with descriptive names (e.g. 'loss_curve.png', 'comparison_results.png')
+- Example pattern:
+  ```python
+  plt.figure(figsize=(8, 5))
+  plt.plot(...)
+  plt.title('Training Loss Curve')  # English only
+  plt.xlabel('Epoch')
+  plt.ylabel('Loss')
+  plt.savefig('training_loss.png', dpi=150, bbox_inches='tight')
+  plt.close()
+  ```
 
 ## GPU-Aware Guidelines
 - Always auto-detect device: `device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")`
@@ -65,11 +82,14 @@ class CoderWorker(BaseWorker):
 - Define clear I/O contracts: typed parameters and return values
 - When fixing a bug, modify only the affected function — do NOT rewrite the whole file
 
-## Output Format
-- Show the code you wrote
-- Show execution results (stdout/stderr)
-- Summarize what was implemented, which device was used, and key metrics
-- Note any limitations or next steps
+## MANDATORY Final Summary
+At the end of your work, you MUST provide a comprehensive summary with:
+1. **Files Created/Modified**: List all files saved to workspace with write_file
+2. **Architecture**: Describe the model/algorithm architecture with key hyperparameters
+3. **Results Table**: Show all numerical results in a clear table format
+4. **Key Findings**: 2-3 sentences on what the results mean
+5. **Limitations**: What this implementation does NOT cover (for a real study, you would need...)
+6. **Reproducibility Note**: Exact command to re-run, random seeds used, training epochs, etc.
 
 Respond in the same language as the task."""
 
@@ -136,3 +156,19 @@ Respond in the same language as the task."""
             t for t in self.registry.tools
             if t["function"]["name"] in CODER_TOOLS
         ]
+
+    def _validate_output(self, output: str) -> dict:
+        """Coder must have saved files and produced results."""
+        base = super()._validate_output(output)
+        if not base["valid"]:
+            return base
+
+        # Check that write_file was used (mandatory per system prompt)
+        has_file_save = any(marker in output.lower() for marker in [
+            "write_file", "saved", "written to", "file created",
+            "files created", "## final summary", "### files",
+        ])
+        if not has_file_save:
+            return {"valid": False, "reason": "No files saved to workspace (write_file not used)"}
+
+        return {"valid": True, "reason": ""}

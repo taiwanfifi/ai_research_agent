@@ -16,6 +16,11 @@ EXPLORER_TOOLS = {
 class ExplorerWorker(BaseWorker):
     WORKER_NAME = "explorer"
     CATEGORY = "papers"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.max_turns = 15  # Explorer needs more turns: each tool call = 1 turn
+
     SYSTEM_PROMPT = """You are a research explorer agent. Your job is to search for and summarize academic papers, datasets, and code repositories.
 
 Capabilities:
@@ -28,16 +33,42 @@ Capabilities:
 
 Workflow:
 1. Understand the research topic
-2. Search multiple sources for comprehensive coverage
-3. Summarize key findings: titles, years, citation counts, key contributions
-4. Identify the most relevant/cited works
+2. Search MULTIPLE sources (at least 2-3 different APIs) for comprehensive coverage
+3. For each paper found, extract: title, authors, year, venue, citation count, arXiv ID if available
+4. Identify the most relevant/cited works (top 5-10 papers)
 5. Note any gaps or areas needing further exploration
+6. Search for open-source implementations (GitHub repos) related to the top papers
 
-Output format:
-- Provide a structured summary with paper details
-- Highlight top 3-5 most relevant papers
-- Note trends and common themes
-- Suggest follow-up queries if needed
+## MANDATORY Final Summary
+At the end of your work, you MUST provide a comprehensive structured summary:
+
+### Top Papers (ranked by relevance)
+For each paper:
+- **Title**: exact title
+- **Authors**: first author et al., year
+- **Venue**: conference/journal name
+- **Citations**: count (from Semantic Scholar or OpenAlex)
+- **Key Contribution**: 1-2 sentences on what this paper does differently
+- **arXiv ID**: if available
+
+### Key Methods & Approaches
+- What are the main approaches in this field?
+- What are the strongest baselines?
+- What metrics are standard for evaluation?
+
+### Open-Source Implementations
+- List GitHub repos with star counts
+- Note which papers have official code vs community reimplementations
+
+### Research Gaps
+- What hasn't been tried yet?
+- What are the limitations of current approaches?
+
+### Critical Assessment (MANDATORY)
+Before concluding, evaluate the research direction:
+- **Ceiling Check**: Is this an already-mature system with < 5% improvement room? If a simple heuristic or manual tuning achieves similar results, say so clearly.
+- **Strongest Baseline**: What is the STRONGEST baseline (not weakest)? Any improvement claim must be against the strongest known baseline.
+- **Feasibility**: Can this be meaningfully implemented and evaluated in a limited compute budget (1-2 GPU hours)?
 
 Respond in the same language as the task."""
 
@@ -47,3 +78,19 @@ Respond in the same language as the task."""
             t for t in self.registry.tools
             if t["function"]["name"] in EXPLORER_TOOLS
         ]
+
+    def _validate_output(self, output: str) -> dict:
+        """Explorer must find actual papers, not just narrate searching."""
+        base = super()._validate_output(output)
+        if not base["valid"]:
+            return base
+
+        # Must mention at least one paper title or arXiv ID
+        has_papers = any(marker in output for marker in [
+            "arXiv", "arxiv", "Title:", "**Title**", "et al.",
+            "## Top Papers", "### Top Papers", "paper",
+        ])
+        if not has_papers:
+            return {"valid": False, "reason": "No papers found in explorer output"}
+
+        return {"valid": True, "reason": ""}
