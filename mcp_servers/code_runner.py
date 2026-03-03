@@ -1,22 +1,32 @@
 """
-程式執行 MCP Server (模擬)
+程式執行 MCP Server
 ===========================
 提供以下 tools 給 Agent 呼叫：
-- run_python_code: 在 subprocess 中執行 Python 程式碼
+- run_python_code: 在 subprocess 中執行 Python 程式碼（支援外部套件）
 - write_file: 寫入檔案到 workspace
 - read_file: 讀取 workspace 中的檔案
+- pip_install: 安裝 Python 套件
+- detect_hardware: 偵測 GPU / 硬體環境
 """
 
+import json
 import os
 import subprocess
+import sys
 import tempfile
 
 WORKSPACE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "workspace")
 os.makedirs(WORKSPACE, exist_ok=True)
 
+# Default timeout: 300s (5 minutes) for GPU workloads
+DEFAULT_TIMEOUT = int(os.environ.get("CODE_TIMEOUT", "300"))
 
-def run_python_code(code: str, timeout: int = 30) -> dict:
-    """在 subprocess 中安全執行 Python 程式碼"""
+
+def run_python_code(code: str, timeout: int = None) -> dict:
+    """在 subprocess 中執行 Python 程式碼（可用 torch, numpy 等已安裝套件）"""
+    if timeout is None:
+        timeout = DEFAULT_TIMEOUT
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", dir=WORKSPACE, delete=False) as f:
         f.write(code)
         f.flush()
@@ -24,25 +34,27 @@ def run_python_code(code: str, timeout: int = 30) -> dict:
 
     try:
         result = subprocess.run(
-            ["python3", tmp_path],
+            [sys.executable, tmp_path],
             capture_output=True, text=True, timeout=timeout,
             cwd=WORKSPACE,
         )
         return {
             "success": result.returncode == 0,
-            "stdout": result.stdout[:2000],
-            "stderr": result.stderr[:2000],
+            "stdout": result.stdout[:5000],
+            "stderr": result.stderr[:3000],
             "returncode": result.returncode,
         }
     except subprocess.TimeoutExpired:
         return {"success": False, "stdout": "", "stderr": f"Timeout after {timeout}s", "returncode": -1}
     finally:
-        os.unlink(tmp_path)
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 def write_file(filename: str, content: str) -> dict:
     """寫入檔案到 workspace"""
-    # 安全檢查：不允許路徑穿越
     safe_name = os.path.basename(filename)
     path = os.path.join(WORKSPACE, safe_name)
     with open(path, "w") as f:
@@ -61,18 +73,52 @@ def read_file(filename: str) -> dict:
     return {"success": True, "filename": safe_name, "content": content[:5000], "size": len(content)}
 
 
+def pip_install(packages: str) -> dict:
+    """安裝 Python 套件（例如 'torch numpy transformers'）"""
+    pkg_list = packages.strip().split()
+    if not pkg_list:
+        return {"success": False, "error": "No packages specified"}
+
+    # Safety: block obviously dangerous packages
+    blocked = {"os", "sys", "shutil", "subprocess", "ctypes", "socket"}
+    for p in pkg_list:
+        base = p.split("==")[0].split(">=")[0].split("<=")[0].lower()
+        if base in blocked:
+            return {"success": False, "error": f"Package '{base}' is blocked for safety"}
+
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--quiet"] + pkg_list,
+            capture_output=True, text=True, timeout=120,
+        )
+        return {
+            "success": result.returncode == 0,
+            "stdout": result.stdout[:2000],
+            "stderr": result.stderr[:2000],
+            "installed": pkg_list,
+        }
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": "pip install timed out after 120s"}
+
+
+def detect_hardware() -> dict:
+    """偵測當前硬體環境（GPU、記憶體、已安裝套件）"""
+    from config import HW_ENV
+    return HW_ENV
+
+
 # ── Tool 定義 ─────────────────────────────────────────────────────
 TOOLS = [
     {
         "type": "function",
         "function": {
             "name": "run_python_code",
-            "description": "Execute Python code in a sandboxed subprocess. Returns stdout, stderr, and exit code.",
+            "description": "Execute Python code in a subprocess. Can use any installed package (torch, numpy, etc). Default timeout 300s.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "code": {"type": "string", "description": "Python code to execute"},
-                    "timeout": {"type": "integer", "description": "Timeout in seconds", "default": 30},
+                    "timeout": {"type": "integer", "description": "Timeout in seconds (default 300, max 600)", "default": 300},
                 },
                 "required": ["code"],
             },
@@ -107,10 +153,34 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "pip_install",
+            "description": "Install Python packages using pip. Example: 'torch numpy' or 'transformers>=4.30'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "packages": {"type": "string", "description": "Space-separated package names (e.g. 'torch numpy matplotlib')"},
+                },
+                "required": ["packages"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "detect_hardware",
+            "description": "Detect available GPU, memory, and installed ML packages on this machine.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
 ]
 
 TOOL_FUNCTIONS = {
     "run_python_code": run_python_code,
     "write_file": write_file,
     "read_file": read_file,
+    "pip_install": pip_install,
+    "detect_hardware": detect_hardware,
 }
