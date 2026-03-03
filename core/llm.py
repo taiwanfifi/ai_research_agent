@@ -1,7 +1,8 @@
 """
 MiniMax LLM Client
 ===================
-Extracted from agent.py — provides the core LLM interface for all components.
+Provides the core LLM interface for all components.
+Handles retries, message truncation, and 400 recovery.
 """
 
 import json
@@ -15,8 +16,51 @@ def strip_think(text: str) -> str:
     return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
 
+# Max chars per tool result to avoid blowing up context
+_MAX_TOOL_RESULT = 3000
+# Max total chars across all messages before we trim old ones
+_MAX_CONTEXT_CHARS = 60000
+
+
+def _estimate_chars(messages: list) -> int:
+    """Rough estimate of total chars in message list."""
+    total = 0
+    for m in messages:
+        total += len(m.get("content") or "")
+        for tc in m.get("tool_calls", []):
+            total += len(tc.get("function", {}).get("arguments", ""))
+    return total
+
+
+def _trim_messages(messages: list, max_chars: int = _MAX_CONTEXT_CHARS) -> list:
+    """
+    Trim middle messages if context is too large.
+    Keep: system prompt (first) + last N messages.
+    """
+    if _estimate_chars(messages) <= max_chars:
+        return messages
+
+    # Always keep system prompt
+    system = [messages[0]] if messages and messages[0].get("role") == "system" else []
+    rest = messages[len(system):]
+
+    # Keep removing oldest non-system messages until under limit
+    while rest and _estimate_chars(system + rest) > max_chars:
+        rest.pop(0)
+
+    trimmed = system + rest
+    if len(trimmed) < len(messages):
+        # Insert a note so LLM knows context was trimmed
+        if system:
+            trimmed.insert(1, {
+                "role": "user",
+                "content": "[Note: earlier conversation was trimmed to fit context limit. Continue from here.]",
+            })
+    return trimmed
+
+
 class MiniMaxClient:
-    """Stateless MiniMax API client."""
+    """Stateless MiniMax API client with auto-retry and context management."""
 
     def __init__(self, api_key: str, base_url: str = "https://api.minimax.io/v1",
                  model: str = "MiniMax-M2.5", max_tokens: int = 4096,
@@ -30,7 +74,10 @@ class MiniMaxClient:
         self.max_retries = max_retries
 
     def chat(self, messages: list, tools: list = None) -> dict:
-        """Call MiniMax chat completions API with retry."""
+        """Call MiniMax chat completions API with retry and 400 recovery."""
+        # Trim if too long
+        messages = _trim_messages(messages)
+
         payload = {
             "model": self.model,
             "messages": messages,
@@ -53,9 +100,27 @@ class MiniMaxClient:
                 )
                 resp.raise_for_status()
                 return resp.json()
+
+            except httpx.HTTPStatusError as e:
+                status = e.response.status_code
+                if status == 400 and attempt < self.max_retries - 1:
+                    # 400 usually means context too long — aggressively trim
+                    print(f"  [LLM] 400 error, trimming context and retrying "
+                          f"({attempt+2}/{self.max_retries})...")
+                    messages = _trim_messages(messages,
+                                              max_chars=_MAX_CONTEXT_CHARS // (attempt + 2))
+                    payload["messages"] = messages
+                    # Also try without tools on last retry
+                    if attempt == self.max_retries - 2 and tools:
+                        print(f"  [LLM] Dropping tools for retry...")
+                        payload.pop("tools", None)
+                    time.sleep(1)
+                    continue
+                raise
+
             except httpx.ReadTimeout:
                 if attempt < self.max_retries - 1:
-                    print(f"  [Retry] Timeout, retrying ({attempt+2}/{self.max_retries})...")
+                    print(f"  [LLM] Timeout, retrying ({attempt+2}/{self.max_retries})...")
                     time.sleep(2)
                 else:
                     raise
@@ -64,20 +129,7 @@ class MiniMaxClient:
                    tool_executor, max_turns: int = 10,
                    on_response=None, on_tool_call=None, on_tool_result=None):
         """
-        Run a complete agent loop.
-
-        Args:
-            task: The user task/query
-            system_prompt: System prompt for the agent
-            tools_defs: List of tool definitions (OpenAI format)
-            tool_executor: Callable(name, args) -> str that executes tools
-            max_turns: Maximum iterations
-            on_response: Optional callback(turn, content, latency_ms)
-            on_tool_call: Optional callback(name, args)
-            on_tool_result: Optional callback(name, result)
-
-        Returns:
-            List of all messages (conversation history)
+        Run a complete agent loop with auto-truncation of tool results.
         """
         messages = [
             {"role": "system", "content": system_prompt},
@@ -86,7 +138,12 @@ class MiniMaxClient:
 
         for turn in range(1, max_turns + 1):
             t0 = time.perf_counter()
-            response = self.chat(messages, tools=tools_defs)
+            try:
+                response = self.chat(messages, tools=tools_defs)
+            except Exception as e:
+                print(f"  [LLM] API error on turn {turn}: {e}")
+                break
+
             latency = (time.perf_counter() - t0) * 1000
 
             choice = response["choices"][0]
@@ -115,6 +172,10 @@ class MiniMaxClient:
                         on_tool_call(func_name, func_args)
 
                     result = tool_executor(func_name, func_args)
+
+                    # Truncate long tool results to prevent context explosion
+                    if len(result) > _MAX_TOOL_RESULT:
+                        result = result[:_MAX_TOOL_RESULT] + "\n...(truncated)"
 
                     if on_tool_result:
                         on_tool_result(func_name, result)
