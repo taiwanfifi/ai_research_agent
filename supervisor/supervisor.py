@@ -28,9 +28,13 @@ from core.tool_registry import ToolRegistry
 from core.event_bus import EventBus, EventType
 from core.state import StateStore
 from core.insight_dag import InsightDAG
+from core.result_verifier import ResultVerifier
 from knowledge.tree import KnowledgeTree
 from supervisor.planner import TaskPlanner
 from supervisor.reporter import Reporter
+from supervisor.goal_tracker import GoalTracker
+from supervisor.flow_monitor import FlowMonitor
+from supervisor.research_standards import get_quality_rules
 from workers.explorer import ExplorerWorker
 from workers.coder import CoderWorker
 from workers.reviewer import ReviewerWorker
@@ -77,7 +81,7 @@ class Supervisor:
                  event_bus: EventBus, state_store: StateStore,
                  knowledge: KnowledgeTree, reports_dir: str,
                  mission_ctx=None, mission_manager=None,
-                 code_store=None):
+                 code_store=None, evolution_store=None):
         self.llm = llm
         self.registry = registry
         self.event_bus = event_bus
@@ -92,6 +96,9 @@ class Supervisor:
                                  workspace_dir=workspace_dir)
         self.planner = TaskPlanner(llm)
 
+        # Result verifier: cross-checks claims vs stdout
+        self.result_verifier = ResultVerifier()
+
         # Workers
         self.workers = {
             "explorer": ExplorerWorker(llm, registry, event_bus, knowledge),
@@ -102,9 +109,23 @@ class Supervisor:
         if mission_ctx:
             for w in self.workers.values():
                 w.mission_id = mission_ctx.mission_id
+        # Wire result verifier to all workers
+        for w in self.workers.values():
+            w.result_verifier = self.result_verifier
 
         # Code version store (for workspace summary in context)
         self.code_store = code_store
+
+        # Evolution store (cross-mission learning)
+        self.evolution_store = evolution_store
+
+        # Goal tracker (objective goal completion)
+        self.goal_tracker = GoalTracker(
+            workspace_dir or "", llm=llm,
+        )
+
+        # Flow monitor (meta-supervision heuristics)
+        self.flow_monitor = FlowMonitor()
 
         # Mission state
         self.goal = ""
@@ -150,6 +171,10 @@ class Supervisor:
             "working_memory": self.working_memory,
             "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "consecutive_failures": self._consecutive_failures,
+            # Round 9 modules
+            "result_verifier": self.result_verifier.to_dict(),
+            "goal_tracker": self.goal_tracker.to_dict(),
+            "flow_monitor": self.flow_monitor.to_dict(),
         }
         self.state.checkpoint("mission", data)
 
@@ -184,6 +209,16 @@ class Supervisor:
         else:
             self.insight_dag = InsightDAG()
         self.working_memory = cp.get("working_memory", "")
+        # Restore Round 9 modules
+        if "result_verifier" in cp:
+            self.result_verifier = ResultVerifier.from_dict(cp["result_verifier"])
+            for w in self.workers.values():
+                w.result_verifier = self.result_verifier
+        ws_dir = self.mission_ctx.workspace_dir if self.mission_ctx else ""
+        if "goal_tracker" in cp:
+            self.goal_tracker = GoalTracker.from_dict(cp["goal_tracker"], ws_dir)
+        if "flow_monitor" in cp:
+            self.flow_monitor = FlowMonitor.from_dict(cp["flow_monitor"])
 
     # ── Main entry points ────────────────────────────────────────────
 
@@ -200,8 +235,17 @@ class Supervisor:
         self.reports_generated = 0
         self.insight_dag = InsightDAG()
         self.working_memory = ""
+        self.result_verifier = ResultVerifier()
+        for w in self.workers.values():
+            w.result_verifier = self.result_verifier
 
         self._print_header()
+
+        # Parse goal into measurable sub-goals
+        print(f"  [GoalTracker] Parsing goal into sub-goals...")
+        self.goal_tracker.parse_goal(goal)
+        for sg in self.goal_tracker.sub_goals:
+            print(f"    - [{sg.type}] {sg.description}")
 
         # Initial planning — get a starting set of tasks
         self.agent_state = AgentState.PLANNING
@@ -320,7 +364,24 @@ class Supervisor:
                 self.agent_state = AgentState.FINISHED
                 report = self._generate_report()
                 self._save_checkpoint()
+                self._cleanup_workspace_processes()
                 self._print_footer()
+
+                # Post-mission evolution reflection
+                if self.evolution_store:
+                    try:
+                        print(f"  [Evolution] Reflecting on mission...")
+                        self.evolution_store.reflect_on_mission(
+                            mission_id=self.mission_ctx.mission_id if self.mission_ctx else "",
+                            goal=self.goal,
+                            tasks=self.completed_tasks,
+                            dag=self.insight_dag,
+                            llm=self.llm,
+                        )
+                        print(f"  [Evolution] Learnings saved ({len(self.evolution_store.learnings)} total)")
+                    except Exception as e:
+                        print(f"  [Evolution] Reflection failed: {e}")
+
                 return report
 
             elif action_type == "report":
@@ -364,6 +425,52 @@ class Supervisor:
                 print(f"  [Supervisor] Unknown action '{action_type}', defaulting to explore")
                 self._dispatch_worker("explorer", action.get("task", self.direction))
 
+            # ── Step 4b: Goal completion check ────────────────
+            goal_status = self.goal_tracker.check_completion(
+                self.completed_tasks,
+                knowledge_stats=self.knowledge.stats(),
+                dag=self.insight_dag,
+            )
+            if goal_status["completion_rate"] > 0:
+                completed_n = sum(1 for sg in self.goal_tracker.sub_goals if sg.completed)
+                total_n = len(self.goal_tracker.sub_goals)
+                print(f"  [GoalTracker] {completed_n}/{total_n} sub-goals complete "
+                      f"({goal_status['completion_rate']:.0%})")
+                if goal_status["blocking"]:
+                    print(f"  [GoalTracker] Blocking: {', '.join(goal_status['blocking'][:3])}")
+
+                # Emit events for completed sub-goals
+                for sg in self.goal_tracker.sub_goals:
+                    if sg.completed and sg.evidence:
+                        self.event_bus.emit(EventType.GOAL_SUBGOAL_COMPLETED, {
+                            "type": sg.type, "description": sg.description,
+                        }, source="goal_tracker")
+
+                if goal_status["all_complete"]:
+                    self.event_bus.emit(EventType.GOAL_ALL_COMPLETE, {
+                        "completion_rate": 1.0,
+                    }, source="goal_tracker")
+
+            # ── Step 4c: Flow monitor analysis ─────────────────
+            advisories = self.flow_monitor.analyze(
+                cycle=self.cycle,
+                tasks=self.completed_tasks,
+                dag=self.insight_dag,
+                failures=self._consecutive_failures,
+            )
+            if advisories:
+                for adv in advisories:
+                    print(f"  [FlowMonitor] {adv.severity}: {adv.message}")
+                    self.event_bus.emit(EventType.FLOW_ADVISORY, adv.to_dict(),
+                                        source="flow_monitor")
+
+                # Apply critical advisory hard overrides
+                for adv in advisories:
+                    if adv.severity == "critical" and adv.suggested_action.startswith("skip_worker:"):
+                        worker_to_skip = adv.suggested_action.split(":")[1]
+                        self._consecutive_failures[worker_to_skip] = 0  # Reset so prompt doesn't keep warning
+                        print(f"  [FlowMonitor] Hard override: skipping {worker_to_skip}")
+
             # ── Step 5: Checkpoint ─────────────────────────────
             self._save_checkpoint()
 
@@ -372,7 +479,24 @@ class Supervisor:
         self.agent_state = AgentState.FINISHED
         report = self._generate_report()
         self._save_checkpoint()
+        self._cleanup_workspace_processes()
         self._print_footer()
+
+        # Post-mission evolution reflection
+        if self.evolution_store:
+            try:
+                print(f"  [Evolution] Reflecting on mission...")
+                self.evolution_store.reflect_on_mission(
+                    mission_id=self.mission_ctx.mission_id if self.mission_ctx else "",
+                    goal=self.goal,
+                    tasks=self.completed_tasks,
+                    dag=self.insight_dag,
+                    llm=self.llm,
+                )
+                print(f"  [Evolution] Learnings saved ({len(self.evolution_store.learnings)} total)")
+            except Exception as e:
+                print(f"  [Evolution] Reflection failed: {e}")
+
         return report
 
     # ══════════════════════════════════════════════════════════════════
@@ -621,6 +745,18 @@ Write the working_memory as bullet points. Be concise but complete."""
                     f"Either use a different worker or fundamentally change the task."
                 )
 
+        # Goal completion status
+        goal_status_text = self.goal_tracker.format_for_prompt()
+
+        # Flow monitor advisories (from last cycle)
+        flow_advisories = self.flow_monitor.analyze(
+            cycle=self.cycle,
+            tasks=self.completed_tasks,
+            dag=self.insight_dag,
+            failures=self._consecutive_failures,
+        )
+        flow_text = FlowMonitor.format_for_prompt(flow_advisories) if flow_advisories else ""
+
         prompt = f"""You are a research supervisor. Based on your working memory (distilled insights from all past work), decide the single best next action.
 
 ## Mission
@@ -628,6 +764,8 @@ Write the working_memory as bullet points. Be concise but complete."""
 - Direction: {self.direction}
 - Cycle: {self.cycle}/{self.max_cycles}
 {failure_warnings}
+
+{goal_status_text}
 
 ## Your Working Memory (distilled insights)
 {self.working_memory or "(no insights yet — this is the first cycle)"}
@@ -678,6 +816,8 @@ When evaluating if the current direction is working, watch for these failure pat
 
 If you detect any of these patterns in the working memory or past results, choose "replan" with a clear explanation of which failure type was detected.
 
+{flow_text}
+
 Respond with ONLY JSON:
 {{"action": "...", "task": "specific description", "worker": "explorer|coder|reviewer", "reason": "why this action based on your working memory", "error_context": "if fix_code"}}
 """
@@ -713,6 +853,9 @@ Respond with ONLY JSON:
         # Set cycle on code store so tracked writes know which cycle they belong to
         if self.code_store:
             self.code_store.set_current_cycle(self.cycle)
+
+        # Set cycle on worker for result verification
+        worker._current_cycle = self.cycle
 
         self.event_bus.emit(EventType.TASK_ASSIGNED, {
             "worker": worker_name, "task": task_desc,
@@ -806,11 +949,21 @@ Respond with ONLY JSON:
                     "summary": other_tree.get_summary(depth=1),
                 })
 
+        # Get evolution guidance and quality rules
+        evolution_guidance = ""
+        if self.evolution_store:
+            evolution_guidance = self.evolution_store.get_planner_guidance(self.direction)
+            if evolution_guidance:
+                print(f"  [Evolution] Injecting {len(self.evolution_store.get_relevant_learnings(self.direction))} learnings into planner")
+        quality_rules = get_quality_rules(self.evolution_store, self.direction)
+
         tasks = self.planner.decompose(
             self.direction,
             knowledge_summary=knowledge_summary,
             available_workers=list(self.workers.keys()),
             cross_knowledge=cross_knowledge,
+            evolution_guidance=evolution_guidance,
+            quality_rules=quality_rules,
         )
         self.task_queue = tasks
         print(f"  [Supervisor] Initial plan ({len(tasks)} tasks):")
@@ -841,12 +994,19 @@ Respond with ONLY JSON:
                     "summary": other_tree.get_summary(depth=1),
                 })
 
+        evolution_guidance = ""
+        if self.evolution_store:
+            evolution_guidance = self.evolution_store.get_planner_guidance(self.direction)
+        quality_rules = get_quality_rules(self.evolution_store, self.direction)
+
         tasks = self.planner.decompose(
             self.direction,
             knowledge_summary=knowledge_summary,
             completed_tasks=completed_descs,
             available_workers=list(self.workers.keys()),
             cross_knowledge=cross_knowledge,
+            evolution_guidance=evolution_guidance,
+            quality_rules=quality_rules,
         )
         self.task_queue = tasks
         print(f"  [Supervisor] New plan ({len(tasks)} tasks):")
@@ -880,6 +1040,49 @@ Respond with ONLY JSON:
             errors=self.errors,
             working_memory=self.working_memory,
         )
+
+    # ── Process cleanup ────────────────────────────────────────────
+
+    def _cleanup_workspace_processes(self):
+        """Kill any orphan processes from this mission's workspace."""
+        workspace = self.mission_ctx.workspace_dir if self.mission_ctx else None
+        if not workspace:
+            return
+
+        # Method 1: Clean up tracked PIDs from code_runner
+        try:
+            from mcp_servers.code_runner import _active_pids
+            import signal as _sig
+            for pid in list(_active_pids):
+                try:
+                    os.killpg(os.getpgid(pid), _sig.SIGTERM)
+                    print(f"  [Cleanup] Killed process group for PID {pid}")
+                except (ProcessLookupError, PermissionError, OSError):
+                    pass
+            _active_pids.clear()
+        except Exception:
+            pass
+
+        # Method 2: Find Python processes in workspace dir (best-effort)
+        try:
+            import subprocess as _sp
+            result = _sp.run(
+                ["pgrep", "-f", workspace],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.stdout.strip():
+                pids = result.stdout.strip().split("\n")
+                my_pid = str(os.getpid())
+                for pid_str in pids:
+                    pid_str = pid_str.strip()
+                    if pid_str and pid_str != my_pid:
+                        try:
+                            os.kill(int(pid_str), 15)  # SIGTERM
+                            print(f"  [Cleanup] Terminated orphan PID {pid_str}")
+                        except (ProcessLookupError, PermissionError, ValueError):
+                            pass
+        except Exception:
+            pass
 
     # ── Display ──────────────────────────────────────────────────────
 

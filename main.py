@@ -37,10 +37,23 @@ from core.event_bus import EventBus, EventType
 from core.state import StateStore
 from core.mission import MissionManager, MissionContext
 from core.code_store import CodeVersionStore
+from core.evolution_store import EvolutionStore
 from knowledge.tree import KnowledgeTree
 from supervisor.supervisor import Supervisor
 from skills.registry import SkillRegistry
 from skills.meta_skill import MetaSkill
+
+
+def _check_system_resources():
+    """Warn if system is overloaded before starting a new mission."""
+    try:
+        load_1, load_5, _ = os.getloadavg()
+        cpu_count = os.cpu_count() or 4
+        if load_5 > cpu_count * 0.8:
+            print(f"  WARNING: System load high ({load_5:.1f}, {cpu_count} cores)")
+            print(f"  Consider waiting for existing missions to finish.")
+    except OSError:
+        pass
 
 
 def _make_llm() -> MiniMaxClient:
@@ -67,6 +80,8 @@ def _make_registry() -> ToolRegistry:
 
 def build_system(ctx: MissionContext, manager: MissionManager) -> dict:
     """Initialize all system components scoped to a mission context."""
+    _check_system_resources()
+
     llm = _make_llm()
     registry = _make_registry()
 
@@ -85,6 +100,7 @@ def build_system(ctx: MissionContext, manager: MissionManager) -> dict:
     state_store = StateStore(ctx.state_dir)
     knowledge = KnowledgeTree(ctx.knowledge_dir, llm_client=llm)
     code_store = CodeVersionStore(ctx.workspace_dir)
+    evolution_store = EvolutionStore(MISSIONS_DIR)
 
     skill_registry = SkillRegistry(SKILLS_DIR)
     skill_registry.load_builtin()
@@ -98,6 +114,7 @@ def build_system(ctx: MissionContext, manager: MissionManager) -> dict:
         reports_dir=ctx.reports_dir,
         mission_ctx=ctx, mission_manager=manager,
         code_store=code_store,
+        evolution_store=evolution_store,
     )
 
     return {
@@ -107,6 +124,7 @@ def build_system(ctx: MissionContext, manager: MissionManager) -> dict:
         "state_store": state_store,
         "knowledge": knowledge,
         "code_store": code_store,
+        "evolution_store": evolution_store,
         "skill_registry": skill_registry,
         "meta_skill": meta_skill,
         "supervisor": supervisor,

@@ -17,13 +17,17 @@ class TaskPlanner:
 
     def decompose(self, goal: str, knowledge_summary: dict = None,
                   completed_tasks: list = None, available_workers: list = None,
-                  cross_knowledge: list[dict] = None) -> list[dict]:
+                  cross_knowledge: list[dict] = None,
+                  evolution_guidance: str = "",
+                  quality_rules: str = "") -> list[dict]:
         """
         Decompose a goal into a list of worker tasks.
 
         Args:
             cross_knowledge: Optional list of summaries from other missions
                              [{"mission_id": str, "goal": str, "summary": dict}]
+            evolution_guidance: Learnings from previous missions (from EvolutionStore)
+            quality_rules: Research quality rules to follow
 
         Returns:
             List of dicts with keys: worker, task, priority, depends_on
@@ -48,6 +52,11 @@ class TaskPlanner:
                 "Knowledge from other missions (for reference only, do not duplicate work):\n"
                 + "\n".join(cross_parts)
             )
+
+        if evolution_guidance:
+            context_parts.append(evolution_guidance)
+        if quality_rules:
+            context_parts.append(quality_rules)
 
         context = "\n\n".join(context_parts)
 

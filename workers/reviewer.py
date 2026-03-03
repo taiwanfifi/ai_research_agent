@@ -7,6 +7,7 @@ Uses code execution + datasets. Hardware-aware for GPU benchmarks.
 
 from config import HW_ENV_SUMMARY
 from workers.base_worker import BaseWorker
+from supervisor.research_standards import get_reviewer_rules
 
 REVIEWER_TOOLS = {
     "run_python_code", "write_file", "read_file", "pip_install", "detect_hardware",
@@ -89,6 +90,15 @@ Respond in the same language as the task."""
             if t["function"]["name"] in REVIEWER_TOOLS
         ]
 
+    def run(self, task: str, context: str = "") -> dict:
+        """Run with quality rules injected into context."""
+        quality_rules = get_reviewer_rules()
+        if context:
+            context = context + "\n\n" + quality_rules
+        else:
+            context = quality_rules
+        return super().run(task, context=context)
+
     def _validate_output(self, output: str) -> dict:
         """Reviewer must produce actual results/metrics, not just narration."""
         base = super()._validate_output(output)
@@ -106,5 +116,19 @@ Respond in the same language as the task."""
         if not has_numbers or not has_results:
             return {"valid": False,
                     "reason": "No quantitative results found in reviewer output — must include actual metrics"}
+
+        # Run sanity checks on the output
+        try:
+            from core.sanity_rules import SanityChecker
+            checker = SanityChecker()
+            sanity_result = checker.check_output(output, task_description="")
+            if sanity_result.errors:
+                reasons = "; ".join(v.message for v in sanity_result.errors)
+                return {"valid": False, "reason": f"Sanity check failed: {reasons}"}
+            if sanity_result.warnings:
+                for w in sanity_result.warnings:
+                    print(f"  [reviewer] Sanity warning: {w.message}")
+        except Exception:
+            pass  # Best-effort sanity check
 
         return {"valid": True, "reason": ""}

@@ -16,6 +16,7 @@ Workspace scoping:
 
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,9 @@ os.makedirs(_DEFAULT_WORKSPACE, exist_ok=True)
 
 # Default timeout: 300s (5 minutes) for GPU workloads
 DEFAULT_TIMEOUT = int(os.environ.get("CODE_TIMEOUT", "300"))
+
+# Track spawned process PIDs for mission-end cleanup
+_active_pids: set = set()
 
 
 # ── Workspace-scoped tool factory ────────────────────────────────────
@@ -43,7 +47,8 @@ def create_workspace_tools(workspace_dir: str) -> dict:
     os.makedirs(workspace_dir, exist_ok=True)
 
     def _run_python_code(code: str, timeout: int = None) -> dict:
-        """Execute Python code in a subprocess within the scoped workspace."""
+        """Execute Python code in a subprocess within the scoped workspace.
+        Uses process groups to ensure all child processes are cleaned up."""
         if timeout is None:
             timeout = DEFAULT_TIMEOUT
         with tempfile.NamedTemporaryFile(
@@ -52,21 +57,37 @@ def create_workspace_tools(workspace_dir: str) -> dict:
             f.write(code)
             f.flush()
             tmp_path = f.name
+
+        proc = subprocess.Popen(
+            [sys.executable, tmp_path],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, cwd=workspace_dir,
+            start_new_session=True,  # New process group for cleanup
+        )
+        _active_pids.add(proc.pid)
         try:
-            result = subprocess.run(
-                [sys.executable, tmp_path],
-                capture_output=True, text=True, timeout=timeout,
-                cwd=workspace_dir,
-            )
+            stdout, stderr = proc.communicate(timeout=timeout)
             return {
-                "success": result.returncode == 0,
-                "stdout": result.stdout[:5000],
-                "stderr": result.stderr[:3000],
-                "returncode": result.returncode,
+                "success": proc.returncode == 0,
+                "stdout": stdout[:5000],
+                "stderr": stderr[:3000],
+                "returncode": proc.returncode,
             }
         except subprocess.TimeoutExpired:
+            # Kill entire process group on timeout
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except (ProcessLookupError, PermissionError, OSError):
+                proc.kill()
+            proc.wait(timeout=5)
             return {"success": False, "stdout": "", "stderr": f"Timeout after {timeout}s", "returncode": -1}
         finally:
+            _active_pids.discard(proc.pid)
+            # Kill any lingering children in the process group
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
             try:
                 os.unlink(tmp_path)
             except OSError:
@@ -100,7 +121,8 @@ def create_workspace_tools(workspace_dir: str) -> dict:
 # ── Default (unscoped) functions — used when registered as a module ──
 
 def run_python_code(code: str, timeout: int = None) -> dict:
-    """在 subprocess 中執行 Python 程式碼（可用 torch, numpy 等已安裝套件）"""
+    """在 subprocess 中執行 Python 程式碼（可用 torch, numpy 等已安裝套件）
+    Uses process groups to ensure all child processes are cleaned up."""
     if timeout is None:
         timeout = DEFAULT_TIMEOUT
 
@@ -109,21 +131,34 @@ def run_python_code(code: str, timeout: int = None) -> dict:
         f.flush()
         tmp_path = f.name
 
+    proc = subprocess.Popen(
+        [sys.executable, tmp_path],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, cwd=_DEFAULT_WORKSPACE,
+        start_new_session=True,
+    )
+    _active_pids.add(proc.pid)
     try:
-        result = subprocess.run(
-            [sys.executable, tmp_path],
-            capture_output=True, text=True, timeout=timeout,
-            cwd=_DEFAULT_WORKSPACE,
-        )
+        stdout, stderr = proc.communicate(timeout=timeout)
         return {
-            "success": result.returncode == 0,
-            "stdout": result.stdout[:5000],
-            "stderr": result.stderr[:3000],
-            "returncode": result.returncode,
+            "success": proc.returncode == 0,
+            "stdout": stdout[:5000],
+            "stderr": stderr[:3000],
+            "returncode": proc.returncode,
         }
     except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
+            proc.kill()
+        proc.wait(timeout=5)
         return {"success": False, "stdout": "", "stderr": f"Timeout after {timeout}s", "returncode": -1}
     finally:
+        _active_pids.discard(proc.pid)
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
         try:
             os.unlink(tmp_path)
         except OSError:

@@ -29,6 +29,8 @@ class BaseWorker:
         self.knowledge = knowledge_tree
         self.max_turns = 10
         self.mission_id: str = ""
+        self.result_verifier = None  # Set by supervisor
+        self._current_cycle: int = 0  # Set by supervisor before dispatch
 
     def _get_tool_executor(self):
         """Return the tool executor callable. Override in subclasses to wrap."""
@@ -73,6 +75,20 @@ class BaseWorker:
                 # Only keep first 1000 chars of each tool result to avoid bloat
                 tool_results_parts.append(f"[{name}] {result[:1000]}")
 
+            # Capture stdout for result verification
+            if name == "run_python_code" and self.result_verifier and result:
+                try:
+                    parsed = json.loads(result) if isinstance(result, str) else result
+                    stdout = parsed.get("stdout", "") if isinstance(parsed, dict) else ""
+                    if stdout:
+                        self.result_verifier.capture(
+                            cycle=self._current_cycle,
+                            worker=self.WORKER_NAME,
+                            stdout=stdout,
+                        )
+                except (json.JSONDecodeError, AttributeError):
+                    pass
+
         t0 = time.perf_counter()
         try:
             messages = self.llm.agent_loop(
@@ -106,6 +122,20 @@ class BaseWorker:
             if not validation["valid"]:
                 result["error"] = f"Output validation failed: {validation['reason']}"
                 print(f"  [{self.WORKER_NAME}] VALIDATION FAILED: {validation['reason']}")
+
+            # Run result verification (check claims vs stdout)
+            if validation["valid"] and self.result_verifier:
+                try:
+                    verification = self.result_verifier.verify_output(full_output)
+                    result["verification_score"] = verification.score
+                    if verification.contradicted:
+                        for c in verification.contradicted:
+                            print(f"  [{self.WORKER_NAME}] CONTRADICTED: {c.raw_text}")
+                    if verification.warnings:
+                        for w in verification.warnings:
+                            print(f"  [{self.WORKER_NAME}] Verify warning: {w}")
+                except Exception:
+                    pass  # Best-effort verification
 
             # Auto-save to knowledge tree (only if valid)
             if validation["valid"]:

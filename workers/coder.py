@@ -14,6 +14,7 @@ call is automatically tracked with snapshots, diffs, and AST module maps.
 import json
 from config import HW_ENV_SUMMARY
 from workers.base_worker import BaseWorker
+from supervisor.research_standards import get_coder_rules
 
 CODER_TOOLS = {"run_python_code", "write_file", "read_file", "pip_install", "detect_hardware"}
 
@@ -124,7 +125,14 @@ Respond in the same language as the task."""
         return tracked_executor
 
     def run(self, task: str, context: str = "") -> dict:
-        """Run with code store context injected."""
+        """Run with code store context and quality rules injected."""
+        # Inject quality rules
+        quality_rules = get_coder_rules()
+        if context:
+            context = context + "\n\n" + quality_rules
+        else:
+            context = quality_rules
+
         # Inject workspace summary and fix context
         if self.code_store:
             extra_context_parts = []
@@ -170,5 +178,17 @@ Respond in the same language as the task."""
         ])
         if not has_file_save:
             return {"valid": False, "reason": "No files saved to workspace (write_file not used)"}
+
+        # Run sanity checks on the output
+        try:
+            from core.sanity_rules import SanityChecker
+            checker = SanityChecker()
+            sanity_result = checker.check_output(output, task_description="")
+            # For coder, log warnings but don't block on errors
+            # (coder outputs are code + results, not final evaluation)
+            for v in sanity_result.violations:
+                print(f"  [coder] Sanity {v.severity}: {v.message}")
+        except Exception:
+            pass  # Best-effort sanity check
 
         return {"valid": True, "reason": ""}

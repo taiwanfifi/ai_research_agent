@@ -10,6 +10,7 @@ from workers.base_worker import BaseWorker
 EXPLORER_TOOLS = {
     "search_arxiv", "search_semantic_scholar", "search_openalex",
     "search_hf_datasets", "search_github_repos", "search_github_code",
+    "fetch_arxiv_by_id", "search_papers_with_code",
 }
 
 
@@ -24,9 +25,11 @@ class ExplorerWorker(BaseWorker):
     SYSTEM_PROMPT = """You are a research explorer agent. Your job is to search for and summarize academic papers, datasets, and code repositories.
 
 Capabilities:
-- search_arxiv: Search arXiv preprints
-- search_semantic_scholar: Search Semantic Scholar (citation analysis)
-- search_openalex: Search OpenAlex (250M+ works, sorted by citations)
+- search_arxiv: Search arXiv preprints (sorted by relevance)
+- search_semantic_scholar: Search Semantic Scholar (citation analysis, with retry)
+- search_openalex: Search OpenAlex (250M+ works, sorted by citations, with abstracts)
+- fetch_arxiv_by_id: Fetch a specific paper by arXiv ID (e.g. '2106.09685')
+- search_papers_with_code: Search Papers With Code (papers + GitHub repos with stars)
 - search_hf_datasets: Search Hugging Face datasets
 - search_github_repos: Search GitHub repositories (if available)
 - search_github_code: Search GitHub code (if available)

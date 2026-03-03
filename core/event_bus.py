@@ -26,6 +26,11 @@ class EventType(Enum):
     REPORT_GENERATED = "report_generated"
     STATE_CHANGED = "state_changed"
     ERROR = "error"
+    # Round 9: Quality Guardrails & Self-Evolution
+    GOAL_SUBGOAL_COMPLETED = "goal_subgoal_completed"
+    GOAL_ALL_COMPLETE = "goal_all_complete"
+    FLOW_ADVISORY = "flow_advisory"
+    EVOLUTION_LEARNING_ADDED = "evolution_learning_added"
 
 
 @dataclass
