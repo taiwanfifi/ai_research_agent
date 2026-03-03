@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Environment
+.env
+*.env
+venv/
+.venv/
+
+# API keys
+apikey.txt
+
+# Mission runtime data (per-mission state, knowledge, workspace)
+missions/*/state/
+missions/*/knowledge/
+missions/*/workspace/
+missions/*/reports/
+
+# Legacy runtime dirs
+.state/
+workspace/
+results/
+knowledge_base/
+
+# Generated MCP servers (runtime artifacts)
+mcp_servers/generated/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
