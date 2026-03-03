@@ -30,6 +30,10 @@ class BaseWorker:
         self.max_turns = 10
         self.mission_id: str = ""
 
+    def _get_tool_executor(self):
+        """Return the tool executor callable. Override in subclasses to wrap."""
+        return self.registry.execute
+
     def run(self, task: str, context: str = "") -> dict:
         """
         Execute a task and return results.
@@ -68,7 +72,7 @@ class BaseWorker:
                 task=task,
                 system_prompt=full_prompt,
                 tools_defs=tools_defs,
-                tool_executor=self.registry.execute,
+                tool_executor=self._get_tool_executor(),
                 max_turns=self.max_turns,
                 on_response=on_response,
                 on_tool_call=on_tool_call,

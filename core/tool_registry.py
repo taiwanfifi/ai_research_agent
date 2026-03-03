@@ -2,7 +2,7 @@
 Dynamic Tool Registry
 ======================
 Manages tool definitions and implementations with hot-reload support.
-Replaces the static ALL_TOOLS/ALL_FUNCTIONS pattern from agent.py.
+Dynamic tool management with hot-reload support.
 """
 
 import importlib

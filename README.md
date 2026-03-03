@@ -1,6 +1,6 @@
 # Self-Evolving AI Research Agent
 
-A multi-layer autonomous research system that can search papers, write code, run experiments, and self-evolve its own skills — all orchestrated by an LLM supervisor.
+A multi-layer autonomous research system that can search papers, write code, run experiments, and self-evolve its own skills — all orchestrated by an LLM supervisor with structured memory distillation.
 
 ## Architecture
 
@@ -13,40 +13,80 @@ A multi-layer autonomous research system that can search papers, write code, run
 ┌──────────────────▼──────────────────────────┐
 │           MissionManager                     │
 │  create / list / find (fuzzy) / load / save │
+│  Each mission → isolated directory           │
 └──────────────────┬──────────────────────────┘
                    │
 ┌──────────────────▼──────────────────────────┐
 │            Supervisor                        │
-│  plan → execute cycles → report             │
+│  Memory distillation (InsightDAG)           │
+│  → reflect → decide → dispatch → extract    │
 │  (cross-knowledge · bilingual reports)      │
 ├─────────┬────────────┬──────────────────────┤
 │ Explorer│   Coder    │     Reviewer         │
-│ (papers)│   (code)   │   (benchmarks)       │
+│ (papers)│  (code +   │   (benchmarks)       │
+│         │ versioning)│                      │
 └─────────┴────────────┴──────────────────────┘
         │          │            │
 ┌───────▼──────────▼────────────▼─────────────┐
-│          MCP Tool Servers                    │
-│  arXiv · Semantic Scholar · OpenAlex         │
+│   MCP Tool Servers (mission-scoped)         │
+│  arXiv · Semantic Scholar · OpenAlex        │
 │  HuggingFace · GitHub · Code Runner         │
+│  write_file / read_file / run_python_code   │
+│  → scoped to mission workspace at runtime   │
 └─────────────────────────────────────────────┘
-        │
-┌───────▼─────────────────────────────────────┐
-│       Knowledge Tree (auto-organizing)       │
-│  papers/ · methods/ · code/ · experiments/  │
-└─────────────────────────────────────────────┘
+        │                    │
+┌───────▼────────────┐ ┌────▼────────────────┐
+│  Knowledge Tree    │ │  CodeVersionStore   │
+│  (auto-organizing) │ │  (AST module maps,  │
+│  papers/ methods/  │ │   diffs, snapshots)  │
+│  code/ experiments/│ │  .code_store/        │
+└────────────────────┘ └─────────────────────┘
 ```
 
-Each mission gets its own isolated directory:
+### Memory Distillation (InsightDAG)
+
+Instead of a sliding window over recent outputs, the supervisor maintains a **DAG of research insights** with relevance scoring:
+
+1. After each worker completes, LLM extracts a structured insight (what was learned, key numbers, next steps)
+2. Insights are added to the DAG with references to related prior insights
+3. Before each decision, LLM distills ALL active insights into working memory — promoting important ones, decaying irrelevant ones, archiving dead ends
+4. Old but important insights persist; recent but useless ones decay — like a real researcher's memory
+
+### Code Version Tracking (CodeVersionStore)
+
+Every file the coder writes is automatically version-tracked:
+
+- **Snapshots**: `v001.py`, `v002.py`, ... — full source at each version
+- **Diffs**: `v001_v002.diff` — what changed between versions
+- **AST Module Maps**: parsed function/class boundaries, signatures, docstrings, call graphs
+- **Fix Context**: when debugging, provides only the failing module's code + recent diff instead of the entire file
+
+### Mission-Scoped Workspace
+
+Each mission gets fully isolated file I/O:
 
 ```
 missions/
 └── mission_20260303_185200_flash_attention_search/
-    ├── mission.json      # manifest (goal, direction, language, status)
-    ├── state/            # checkpoints
-    ├── knowledge/        # papers, code, experiments, methods
-    ├── workspace/        # temporary files
-    └── reports/          # progress_en_*.md / progress_zh_*.md
+    ├── mission.json          # manifest (goal, direction, language, status)
+    ├── state/                # checkpoints (full supervisor state)
+    ├── knowledge/            # papers, code, experiments, methods
+    ├── workspace/            # code files written by coder (scoped)
+    │   ├── model.py          # actual code
+    │   └── .code_store/      # version tracking data
+    │       └── model/
+    │           ├── v001.py, v002.py
+    │           ├── v001_v002.diff
+    │           ├── manifest.json
+    │           └── module_map.json
+    └── reports/              # progress_en_*.md / progress_zh_*.md
 ```
+
+`write_file`, `read_file`, and `run_python_code` are all scoped to the mission workspace at runtime via closure-based tool function replacement. This means:
+- Code written by the coder lands in the mission directory
+- `run_python_code` executes with `cwd` set to the mission workspace (so `import model` works)
+- CodeVersionStore tracks the same files that the coder actually writes
+- Different missions never interfere with each other's files
 
 ## Setup
 
@@ -73,6 +113,14 @@ echo "sk-your-key-here" > ../apikey.txt
 
 Python 3.11+ required. No third-party packages needed — the system uses only the standard library + HTTP calls to the MiniMax API.
 
+For ML experiments, optionally install:
+
+```bash
+pip install torch numpy matplotlib
+```
+
+The system auto-detects available packages and GPU (CUDA / MPS / CPU).
+
 ## Usage
 
 ### Start a New Research Mission
@@ -81,7 +129,7 @@ Python 3.11+ required. No third-party packages needed — the system uses only t
 # Basic — English report (default)
 python3 main.py "research Flash Attention optimization methods"
 
-# Chinese report (繁體中文)
+# Chinese report
 python3 main.py --zh "研究 Flash Attention 優化方法"
 
 # With cross-mission knowledge (reference other missions' findings)
@@ -93,9 +141,11 @@ python3 main.py --zh --cross "深入研究 KV Cache 壓縮技術"
 
 What happens:
 1. A new `missions/mission_<timestamp>_<slug>/` directory is created
-2. The supervisor decomposes your goal into tasks
-3. Workers execute tasks (search papers, write code, run benchmarks)
-4. A progress report is generated
+2. Code tools (write_file, read_file, run_python_code) are scoped to the mission workspace
+3. The supervisor decomposes your goal into tasks
+4. Workers execute tasks (search papers, write code, run benchmarks)
+5. Every cycle: extract insight → distill memory → decide next action → checkpoint
+6. A progress report is generated
 
 ### Resume a Mission
 
@@ -114,38 +164,17 @@ python3 main.py --resume
 # Resume and change direction
 python3 main.py --resume attention --direction "focus only on Flash Attention v2"
 
-# Resume with new direction (positional syntax)
-python3 main.py --resume flash "改成只研究 IO-aware 實作"
-
 # Resume + switch to Chinese reports
 python3 main.py --resume flash --zh
-
-# Resume + enable cross-knowledge
-python3 main.py --resume flash --cross
 ```
 
-If multiple missions match, you'll be prompted to choose:
-
-```
-  Multiple missions match 'attention':
-    [1] mission_20260303_185200_flash_attention_search
-        Goal: research Flash Attention optimization methods
-    [2] mission_20260303_190000_attention_implement
-        Goal: implement efficient attention mechanism
-
-  Select [1-2]: _
-```
+If multiple missions match, you'll be prompted to choose.
 
 ### List & Inspect Missions
 
 ```bash
-# List all missions
 python3 main.py --list-missions
-
-# Show status of the most recent mission
 python3 main.py --status
-
-# Generate a report for a specific mission
 python3 main.py --resume flash --report
 ```
 
@@ -171,15 +200,6 @@ Inside interactive mode:
   > quit                                              # exit
 ```
 
-### Legacy Agent (Quick Test)
-
-The original single-file agent still works for quick experiments:
-
-```bash
-python3 agent.py "搜尋最新的 LLM agent 論文"
-python3 agent.py   # interactive mode
-```
-
 ## Examples
 
 ### Example 1: Literature Survey
@@ -188,86 +208,31 @@ python3 agent.py   # interactive mode
 python3 main.py "survey recent advances in efficient attention mechanisms (2024-2026)"
 ```
 
-The supervisor will:
-- Dispatch **explorer** to search arXiv, Semantic Scholar, and OpenAlex
-- Organize found papers into `knowledge/papers/`
-- Dispatch **reviewer** to compare and summarize findings
-- Generate `reports/progress_en_<timestamp>.md`
-
-### Example 2: Code Implementation
+### Example 2: Code Implementation + Benchmark
 
 ```bash
-python3 main.py "implement Flash Attention v2 from scratch in Python and benchmark against naive attention"
+python3 main.py "implement Flash Attention v2 from scratch and benchmark against naive attention"
 ```
 
-The supervisor will:
-- **Explorer** searches for the Flash Attention paper and reference implementations
-- **Coder** implements the algorithm
-- **Reviewer** runs benchmarks comparing performance
-- All artifacts saved in the mission's `knowledge/` and `workspace/`
+The supervisor will search papers → write code → run benchmarks → iterate on results → generate report. All code is version-tracked with AST module maps for intelligent debugging.
 
-### Example 3: Multi-Mission Workflow with Cross-Knowledge
+### Example 3: Multi-Mission with Cross-Knowledge
 
 ```bash
-# Mission 1: Survey the field
 python3 main.py "survey KV cache compression techniques"
-
-# Mission 2: Build on Mission 1's findings
 python3 main.py --cross "implement the most promising KV cache compression method"
-
-# Mission 3: Benchmark everything (Chinese report)
 python3 main.py --cross --zh "對所有 KV cache 方法做完整 benchmark"
 ```
 
 ### Example 4: Resume and Pivot
 
 ```bash
-# Start a broad mission
 python3 main.py "research efficient inference techniques"
-
-# Later, narrow the focus
+# Later, narrow the focus:
 python3 main.py --resume inference --direction "focus only on speculative decoding methods"
 ```
 
-### Example 5: Interactive Research Session
-
-```bash
-python3 main.py -i
-```
-
-```
-  > survey quantization methods for LLMs
-  ...
-  (mission completes)
-
-  > /zh
-  Report language: zh
-
-  > /cross
-  Cross-knowledge: on
-
-  > 基於前面的研究，實作 GPTQ 量化演算法
-  ...
-  (new mission with cross-knowledge, Chinese reports)
-
-  > /resume quantization "改成專注 AWQ 而非 GPTQ"
-  ...
-  (resumes first mission with new direction)
-
-  > /missions
-  Missions (2)
-    mission_20260303_185200_quantization_survey
-    mission_20260303_190500_gptq_implementation
-
-  > /report
-  (generates report for active mission)
-
-  > quit
-```
-
 ## Configuration
-
-Environment variables for tuning:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -278,31 +243,33 @@ Environment variables for tuning:
 | `MAX_TOKENS` | `4096` | Max tokens per response |
 | `TEMPERATURE` | `0.3` | Sampling temperature |
 | `API_TIMEOUT` | `120` | API timeout (seconds) |
+| `CODE_TIMEOUT` | `300` | Code execution timeout (seconds) |
 
 ## Project Structure
 
 ```
 ai_research_agent/
 ├── main.py                      # CLI entry point (mission-aware)
-├── agent.py                     # Legacy single-agent mode
-├── config.py                    # API keys, paths, runtime limits
+├── config.py                    # API keys, paths, runtime limits, hardware detection
 │
 ├── core/
 │   ├── mission.py               # MissionManager + MissionContext
 │   ├── llm.py                   # MiniMax LLM client
 │   ├── tool_registry.py         # Dynamic tool management
 │   ├── event_bus.py             # Pub/sub event system
-│   └── state.py                 # JSON-file state persistence
+│   ├── state.py                 # JSON-file state persistence
+│   ├── code_store.py            # Git-like version tracking + AST module maps
+│   └── insight_dag.py           # DAG knowledge graph + relevance scoring
 │
 ├── supervisor/
-│   ├── supervisor.py            # LLM-driven orchestrator
+│   ├── supervisor.py            # LLM-driven orchestrator (InsightDAG memory)
 │   ├── planner.py               # Goal → task decomposition
 │   └── reporter.py              # Bilingual report generation
 │
 ├── workers/
-│   ├── base_worker.py           # Abstract worker base class
+│   ├── base_worker.py           # Abstract worker (tool executor hook)
 │   ├── explorer.py              # Paper/dataset search
-│   ├── coder.py                 # Code implementation
+│   ├── coder.py                 # Code implementation (version-tracked)
 │   └── reviewer.py              # Benchmarking & evaluation
 │
 ├── knowledge/
@@ -317,7 +284,7 @@ ai_research_agent/
 │
 ├── mcp_servers/
 │   ├── paper_search.py          # arXiv, Semantic Scholar, OpenAlex
-│   ├── code_runner.py           # Python sandbox execution
+│   ├── code_runner.py           # Python sandbox + workspace scoping
 │   ├── dataset_fetch.py         # HuggingFace datasets
 │   ├── github_search.py         # GitHub repos & code search
 │   └── generated/               # Auto-generated tool servers
@@ -325,9 +292,9 @@ ai_research_agent/
 └── missions/                    # Mission data (git-ignored runtime)
     └── mission_<timestamp>_<slug>/
         ├── mission.json
-        ├── state/
+        ├── state/               # full checkpoint (InsightDAG + working memory)
         ├── knowledge/
-        ├── workspace/
+        ├── workspace/           # scoped code I/O + .code_store/
         └── reports/
 ```
 

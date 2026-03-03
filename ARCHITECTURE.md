@@ -176,7 +176,7 @@
 ```
 ai_research_agent/
 ├── ARCHITECTURE.md          ← 本文件
-├── agent.py                 ← 核心 Agent Loop (MiniMax)
+├── main.py                  ← 主入口 (CLI + mission 管理)
 ├── mcp_servers/
 │   ├── paper_search.py      ← 論文搜尋 MCP (arXiv + S2 + OpenAlex)
 │   ├── code_runner.py       ← 程式執行 MCP (subprocess sandbox)

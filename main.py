@@ -36,6 +36,7 @@ from core.tool_registry import ToolRegistry
 from core.event_bus import EventBus, EventType
 from core.state import StateStore
 from core.mission import MissionManager, MissionContext
+from core.code_store import CodeVersionStore
 from knowledge.tree import KnowledgeTree
 from supervisor.supervisor import Supervisor
 from skills.registry import SkillRegistry
@@ -68,9 +69,22 @@ def build_system(ctx: MissionContext, manager: MissionManager) -> dict:
     """Initialize all system components scoped to a mission context."""
     llm = _make_llm()
     registry = _make_registry()
+
+    # Scope code tools to mission workspace — this is what connects
+    # write_file/read_file/run_python_code to the mission directory
+    # instead of the global ai_research_agent/workspace/
+    from mcp_servers import code_runner
+    scoped_tools = code_runner.create_workspace_tools(ctx.workspace_dir)
+    for tool_def in code_runner.TOOLS:
+        name = tool_def["function"]["name"]
+        if name in scoped_tools:
+            registry.register(tool_def, scoped_tools[name],
+                              source=f"code_runner@{ctx.mission_id}")
+
     event_bus = EventBus()
     state_store = StateStore(ctx.state_dir)
     knowledge = KnowledgeTree(ctx.knowledge_dir, llm_client=llm)
+    code_store = CodeVersionStore(ctx.workspace_dir)
 
     skill_registry = SkillRegistry(SKILLS_DIR)
     skill_registry.load_builtin()
@@ -83,6 +97,7 @@ def build_system(ctx: MissionContext, manager: MissionManager) -> dict:
         state_store=state_store, knowledge=knowledge,
         reports_dir=ctx.reports_dir,
         mission_ctx=ctx, mission_manager=manager,
+        code_store=code_store,
     )
 
     return {
@@ -91,6 +106,7 @@ def build_system(ctx: MissionContext, manager: MissionManager) -> dict:
         "event_bus": event_bus,
         "state_store": state_store,
         "knowledge": knowledge,
+        "code_store": code_store,
         "skill_registry": skill_registry,
         "meta_skill": meta_skill,
         "supervisor": supervisor,

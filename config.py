@@ -42,13 +42,6 @@ MCP_SERVERS_DIR = os.path.join(BASE_DIR, "mcp_servers")
 GENERATED_MCP_DIR = os.path.join(MCP_SERVERS_DIR, "generated")
 SKILLS_DIR = os.path.join(BASE_DIR, "skills")
 
-# Legacy paths — kept for agent.py backward compatibility
-WORKSPACE_DIR = os.path.join(BASE_DIR, "workspace")
-RESULTS_DIR = os.path.join(BASE_DIR, "results")
-KNOWLEDGE_DIR = os.path.join(BASE_DIR, "knowledge_base")
-STATE_DIR = os.path.join(BASE_DIR, ".state")
-REPORTS_DIR = os.path.join(RESULTS_DIR, "reports")
-
 # Ensure shared directories exist
 for d in [MISSIONS_DIR, GENERATED_MCP_DIR, SKILLS_DIR]:
     os.makedirs(d, exist_ok=True)

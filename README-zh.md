@@ -11,7 +11,7 @@
 | 工人 | 他會做什麼 | 實際用的工具 |
 |------|-----------|-------------|
 | **Explorer（探索者）** | 搜論文、搜 dataset、搜 GitHub repo | arXiv API、Semantic Scholar API、OpenAlex API、HuggingFace API、GitHub API |
-| **Coder（寫程式的）** | 寫 Python 程式碼、執行、debug、用 GPU 加速 | `run_python_code`（支援 torch/numpy 等套件）、`pip_install`、`write_file`、`read_file` |
+| **Coder（寫程式的）** | 寫 Python 程式碼、執行、debug、用 GPU 加速 | `run_python_code`、`pip_install`、`write_file`、`read_file`（全部鎖定在 mission workspace） |
 | **Reviewer（審查者）** | 跑 benchmark、評估結果、分析好壞 | 跟 Coder 一樣的工具 + HuggingFace datasets + LeetCode/HumanEval 題目 |
 
 ### 硬體感知
@@ -22,18 +22,70 @@
 - **NVIDIA GPU** → 自動用 `torch.device("cuda")`
 - **沒有 GPU** → 用 CPU，不會傻傻寫 GPU code 然後報錯
 
-### Supervisor 怎麼運作（像研究人員一樣）
+### 記憶蒸餾系統（InsightDAG）
 
-**不是固定流水線！** 每一輪 Supervisor 會看目前所有成果，然後自己決定下一步：
+**不是滑動視窗！** Supervisor 有一套 DAG 結構的研究記憶：
+
+```
+每個 worker 完成任務後 → LLM 提取一條 insight（心得）
+                        → 加入 InsightDAG（有引用關係、relevance 分數）
+
+每輪決策前 → LLM 看所有 active insights（按 relevance 排序）
+           → 挑出最重要的 → 提升 relevance
+           → 不重要的 → 衰減 → 太低就歸檔
+           → 產生 working memory（當前研究理解）
+
+效果：
+  - 重要的舊 insight 會一直活著（像研究日誌裡的關鍵發現）
+  - 失敗的嘗試會自然衰減消失（但不刪除，可追溯）
+  - 新的 insight 如果呼應了舊的，會建立引用關係
+  - 就像真正研究者的記憶：重要的越記越牢，瑣碎的自然忘掉
+```
+
+### 程式碼版本追蹤（CodeVersionStore）
+
+Coder 寫的每一個檔案都自動做版本追蹤：
+
+```
+workspace/.code_store/model/
+├── v001.py              ← 第一版完整原始碼
+├── v002.py              ← 第二版
+├── v001_v002.diff       ← 兩版之間的 diff
+├── manifest.json        ← 版本歷史 + 原因
+└── module_map.json      ← AST 解析的模組地圖（函數、類別、signature）
+```
+
+**Debug 時的威力**：不是把整個檔案丟給 LLM，而是：
+1. 解析 traceback → 找出是哪個函數出錯
+2. 只給那個函數的原始碼 + 最近的 diff + I/O contract
+3. LLM 拿到精準的 context，修 bug 更快更準
+
+### 任務隔離 Workspace
+
+每個 mission 的檔案 I/O 完全隔離：
+
+```
+missions/mission_20260303_185200_flash_attention/
+├── workspace/            ← write_file / read_file / run_python_code 都在這裡
+│   ├── model.py          ← Coder 寫的程式碼
+│   └── .code_store/      ← 版本追蹤資料
+└── ...
+```
+
+`write_file`、`read_file`、`run_python_code` 在系統啟動時會被 **重新綁定到 mission workspace**。不同任務的檔案絕對不會互相干擾。
+
+### Supervisor 怎麼運作
+
+**不是固定流水線！** 每一輪 Supervisor 會看 working memory（蒸餾過的研究理解），然後自己決定下一步：
 
 ```
 每一輪（cycle）：
-  Supervisor 看「目標 + 已完成任務 + 錯誤 + 知識庫」
-  然後自己決定：
+  1. 蒸餾所有 insights → 更新 working memory
+  2. 看 working memory → 決定下一步
 
   "論文搜得不夠"        → 派 Explorer 再搜
-  "有想法了，來寫 code"  → 派 Coder 實作
-  "code 跑失敗了"       → 派 Coder 帶著 error 去修（不是放棄！）
+  "有想法了，來寫 code"  → 派 Coder 實作（自動版本追蹤）
+  "code 跑失敗了"       → 派 Coder 帶著精準 fix context 去修
   "跑出來了，測一下"     → 派 Reviewer 跑 benchmark
   "結果不好"            → 派 Coder 改進，或 Explorer 找更好的方法
   "方向不對"            → 重新規劃（replan）
@@ -41,37 +93,49 @@
   "目標達成"            → 寫最終報告 → 結束
 ```
 
-**每一輪都會存 checkpoint**，所以：
+**每一輪都會存 checkpoint**（包含完整的 InsightDAG + working memory），所以：
 - `Ctrl+C` 隨時中斷都安全
-- `--resume` 從斷點精確繼續（恢復所有已完成任務、錯誤、進度）
+- `--resume` 從斷點精確繼續（恢復所有 insight、relevance 分數、版本追蹤）
 - 關機、斷電、網路斷都不怕
 
 ### 舉個例子
 
 你輸入：
 ```
-python3 main.py "研究 Flash Attention 優化方法，然後實作一個簡化版並跑 benchmark"
+python3 main.py --zh "研究 Flash Attention 優化方法，然後實作一個簡化版並跑 benchmark"
 ```
 
 系統可能會這樣跑（**每一步都是 LLM 自己決定的**，不是寫死的）：
 
 ```
 Cycle 1: search_more → Explorer 去 arXiv 搜 Flash Attention 論文
+         [Memory] Insight i0001: 找到 3 篇核心論文...（relevance: 0.5）
+
 Cycle 2: search_more → Explorer 去 GitHub 搜參考實作
-Cycle 3: implement   → Coder 根據論文寫 Flash Attention（用 MPS 加速）
-Cycle 4: fix_code    → 上一輪 code 有 bug，Coder 拿到 error 重修
-Cycle 5: implement   → Coder 寫 naive attention 做對照
-Cycle 6: benchmark   → Reviewer 跑 benchmark 比較兩個版本
-Cycle 7: improve     → 結果差距不大，Coder 優化實作（加 tiling）
-Cycle 8: benchmark   → Reviewer 重新跑 benchmark
-Cycle 9: report      → 有階段成果，寫中間報告
-Cycle 10: done       → 結果夠好了，寫最終報告
+         [Memory] Insight i0002: GitHub 上有 2 個高星實作...（relevance: 0.5）
+         [Memory] 蒸餾 → i0001, i0002 被選為重要 → relevance 提升
+
+Cycle 3: implement → Coder 根據論文寫 Flash Attention
+         [CodeStore] model.py v001 tracked (3 modules)
+
+Cycle 4: fix_code → Coder 拿到 fix context（只有出錯的函數 + diff）
+         [CodeStore] model.py v002 tracked, diff: ~attention_forward
+
+Cycle 5: implement → Coder 寫 naive attention 做對照
+         [CodeStore] baseline.py v001 tracked
+
+Cycle 6: benchmark → Reviewer 跑 benchmark 比較兩個版本
+         [Memory] Insight i0005: Flash Attention 快 2.3x...
+
+Cycle 7: done → 最終報告
 ```
 
-如果中途 Ctrl+C 斷在 Cycle 6：
+如果中途 Ctrl+C 斷在 Cycle 4：
 ```bash
 python3 main.py --resume flash
-# → 從 Cycle 7 繼續，之前的 5 個任務結果都還在
+# → 從 Cycle 5 繼續
+# → InsightDAG 完整恢復（4 個 insights, relevance 分數都在）
+# → CodeVersionStore 知道 model.py 已經是 v002
 ```
 
 ---
@@ -145,7 +209,7 @@ python3 main.py --resume 20260303
 # 不帶參數 = 恢復最近一次
 python3 main.py --resume
 
-# 恢復 + 改方向（本來在研究 Flash Attention，現在只想看 v2）
+# 恢復 + 改方向
 python3 main.py --resume flash --direction "只研究 Flash Attention v2 的 IO-aware 實作"
 ```
 
@@ -165,21 +229,6 @@ python3 main.py --resume flash --direction "只研究 Flash Attention v2 的 IO-
 
 ```bash
 python3 main.py --list-missions
-```
-
-輸出像這樣：
-
-```
-  Missions (2)
-  ============================================================
-  mission_20260303_185200_flash_attention_search
-    Goal: 研究 Flash Attention 優化方法
-    Status: finished  Language: zh
-
-  mission_20260303_190000_attention_implement
-    Goal: 實作 efficient attention
-    Direction: 只研究 Flash Attention v2
-    Status: running  Language: en [cross]
 ```
 
 ### 4. 查看狀態
@@ -214,7 +263,7 @@ python3 main.py
 
 ## 跑完東西在哪裡？
 
-這是最重要的部分。每個任務的所有檔案都在 `missions/` 資料夾裡，**完全隔離**：
+每個任務的所有檔案都在 `missions/` 資料夾裡，**完全隔離**：
 
 ```
 missions/
@@ -230,104 +279,56 @@ missions/
     │   └── reports/          ← 任務過程中的知識報告
     │
     ├── reports/              ← ★ 最終報告
-    │   ├── progress_en_20260303_192000.md   ← 英文報告
-    │   └── progress_zh_20260303_192000.md   ← 中文報告
+    │   ├── progress_en_20260303_192000.md
+    │   └── progress_zh_20260303_192000.md
     │
-    ├── workspace/            ← 工作區（暫存檔案）
+    ├── workspace/            ← ★ 工作區（Coder 寫的程式碼都在這）
+    │   ├── model.py          ← 實際程式碼
+    │   ├── baseline.py
+    │   └── .code_store/      ← 自動版本追蹤
+    │       ├── model/
+    │       │   ├── v001.py, v002.py     ← 每版快照
+    │       │   ├── v001_v002.diff       ← 版本差異
+    │       │   ├── manifest.json        ← 版本歷史
+    │       │   └── module_map.json      ← AST 模組地圖
+    │       └── baseline/
+    │           └── ...
     │
-    └── state/                ← checkpoint（用來 resume 的）
+    └── state/                ← checkpoint（InsightDAG + working memory）
 ```
 
-### 具體去看什麼
-
-#### 看報告
+### 看報告
 
 ```bash
-# 看最新的中文報告
 cat missions/mission_20260303_*/reports/progress_zh_*.md
 ```
 
-報告長這樣：
-
-```markdown
-# 研究任務報告
-
-產生時間：2026-03-03 19:20:00
-
-## 任務目標
-
-研究 Flash Attention 優化方法，然後實作一個簡化版並跑 benchmark
-
-## 進度（5/5 項任務）
-
-### 已完成
-- [explorer] 搜尋 Flash Attention 相關論文（23.5秒）
-- [explorer] 搜尋 GitHub 上的參考實作（15.2秒）
-- [coder] 實作簡化版 Flash Attention（45.8秒）
-- [coder] 實作 naive attention 對照版（12.3秒）
-- [reviewer] 跑 benchmark 比較效能（38.1秒）
-
-## 知識庫統計
-
-- 總計：8 項
-- papers：3 項
-- code：3 項
-- experiments：2 項
-
-## 後續步驟
-
-（無待執行任務）
-```
-
-#### 看搜到的論文
+### 看搜到的論文
 
 ```bash
-ls missions/mission_20260303_*/knowledge/papers/
-# explorer_1709649120.md
-# explorer_1709649135.md
-
 cat missions/mission_20260303_*/knowledge/papers/explorer_*.md
 ```
 
-每個檔案裡面會有搜到的論文標題、作者、摘要、引用數等等。
-
-#### 看寫的程式碼
+### 看寫的程式碼
 
 ```bash
-ls missions/mission_20260303_*/knowledge/code/
-# coder_1709649200.md
-# coder_1709649250.md
-
+# 看知識庫裡的程式碼記錄
 cat missions/mission_20260303_*/knowledge/code/coder_*.md
+
+# 看實際的 Python 檔案（workspace 裡）
+cat missions/mission_20260303_*/workspace/*.py
+
+# 看版本歷史
+cat missions/mission_20260303_*/workspace/.code_store/*/manifest.json
+
+# 看 AST 模組地圖（函數、類別、signature）
+cat missions/mission_20260303_*/workspace/.code_store/*/module_map.json
 ```
 
-裡面會有完整的 Python 程式碼 + 執行結果。
-
-#### 看實驗 / benchmark 結果
+### 看實驗 / benchmark 結果
 
 ```bash
 cat missions/mission_20260303_*/knowledge/experiments/reviewer_*.md
-```
-
-裡面會有 benchmark 方法、測試結果、數據分析。
-
-#### 看任務 manifest
-
-```bash
-cat missions/mission_20260303_*/mission.json
-```
-
-```json
-{
-  "mission_id": "mission_20260303_185200_flash_attention_search",
-  "goal": "研究 Flash Attention 優化方法",
-  "direction": "研究 Flash Attention 優化方法",
-  "slug": "flash_attention_search",
-  "created_at": "2026-03-03T18:52:00",
-  "language": "zh",
-  "cross_knowledge": false,
-  "status": "finished"
-}
 ```
 
 ---
@@ -346,9 +347,9 @@ cat missions/mission_*_efficient_attention*/reports/progress_zh_*.md
 # Step 3: 開一個新任務，開啟 cross-knowledge 讓它參考第一次的成果
 python3 main.py --zh --cross "實作 Flash Attention v2 並跟 naive attention 做 benchmark"
 
-# Step 4: 看程式碼和實驗結果
-cat missions/mission_*_flash_attention*/knowledge/code/*.md
-cat missions/mission_*_flash_attention*/knowledge/experiments/*.md
+# Step 4: 看程式碼和版本追蹤
+cat missions/mission_*_flash_attention*/workspace/*.py
+cat missions/mission_*_flash_attention*/workspace/.code_store/*/manifest.json
 ```
 
 ### 流程二：中途改方向
@@ -360,7 +361,7 @@ python3 main.py "research Flash Attention optimization"
 # 跑到一半想改成只看 IO-aware 的部分
 # Ctrl+C 中斷
 
-# 用 resume + 改方向繼續
+# 用 resume + 改方向繼續（InsightDAG 和版本追蹤全部保留）
 python3 main.py --resume flash --direction "focus only on IO-aware memory optimization in Flash Attention v2"
 ```
 
@@ -369,34 +370,20 @@ python3 main.py --resume flash --direction "focus only on IO-aware memory optimi
 ```bash
 python3 main.py
 
-# 進入互動模式：
   > 搜尋最近的 speculative decoding 論文
-  # （系統跑完，你看到報告）
+  # （系統跑完，InsightDAG 累積了 insights）
 
   > /zh
-  # Report language: zh（切換成中文）
+  # Report language: zh
 
   > 實作一個簡單的 speculative decoding
-  # （系統開一個新任務，寫程式跑實驗）
-
-  > /missions
-  # 看到兩個任務
+  # （新任務，Coder 寫的 code 自動版本追蹤）
 
   > /resume speculative "改成用 Medusa 方法"
   # 恢復第一個任務，方向改成 Medusa
 
   > quit
 ```
-
-### 流程四：快速單次查論文
-
-如果你只是想快速查個東西，不需要完整 mission，用 legacy agent：
-
-```bash
-python3 agent.py "搜尋 2025 年最新的 LLM 量化方法論文"
-```
-
-這個不會建立 mission 目錄，結果直接印在 terminal。
 
 ---
 
@@ -410,11 +397,13 @@ python3 agent.py "搜尋 2025 年最新的 LLM 量化方法論文"
 - 用 `subprocess` 跑 Python 程式碼（**真的會執行，不是模擬**）
 - **可以用 torch、numpy 等外部套件**（系統會偵測已安裝的套件）
 - **可以用 `pip_install` 工具裝套件**（Coder 發現缺套件會自己裝）
-- **自動偵測 GPU**：MPS（Mac）或 CUDA（NVIDIA），寫 code 會自動用對的 device
-- 寫檔案到 workspace / 讀取 workspace 的檔案
-- 抓 LeetCode 題目 / HumanEval benchmark 範例
-- **code 跑失敗會自己修**：Supervisor 看到 error 會派 Coder 帶著 error 重寫
-- **結果不好會迭代改進**：不會跑一次就結束，會反覆改到滿意
+- **自動偵測 GPU**：MPS（Mac）或 CUDA（NVIDIA）
+- **每個 mission 的檔案 I/O 完全隔離**
+- **程式碼自動版本追蹤**：每次 write_file 都存快照 + diff + AST 模組地圖
+- **智慧 debug context**：bug fix 時只提供出錯函數的 code + diff，不是整個檔案
+- **研究記憶 DAG**：重要 insight 越記越牢，瑣碎的自然衰減歸檔
+- **code 跑失敗會自己修**：Supervisor 看到 error 會派 Coder 帶著精準 context 重寫
+- **結果不好會迭代改進**：不會跑一次就結束
 
 ### 限制
 
@@ -438,6 +427,7 @@ python3 agent.py "搜尋 2025 年最新的 LLM 量化方法論文"
 | `MAX_TOKENS` | `4096` | 每次回覆最多幾個 token |
 | `TEMPERATURE` | `0.3` | 溫度（越低越確定性） |
 | `API_TIMEOUT` | `120` | API 超時（秒） |
+| `CODE_TIMEOUT` | `300` | 程式碼執行超時（秒） |
 
 ---
 
@@ -445,26 +435,27 @@ python3 agent.py "搜尋 2025 年最新的 LLM 量化方法論文"
 
 ```
 ai_research_agent/
-├── main.py                  ← 主入口（你跑的就是這個）
-├── agent.py                 ← Legacy 單一 agent（快速測試用）
-├── config.py                ← API key、路徑、參數設定
+├── main.py                  ← 主入口（mission workspace scoping 在這裡接線）
+├── config.py                ← API key、路徑、參數設定、硬體偵測
 │
 ├── core/
 │   ├── mission.py           ← Mission 管理（建立/列表/搜尋/恢復）
 │   ├── llm.py               ← MiniMax LLM 客戶端
 │   ├── tool_registry.py     ← 工具註冊中心
 │   ├── event_bus.py         ← 事件系統
-│   └── state.py             ← JSON 狀態持久化
+│   ├── state.py             ← JSON 狀態持久化
+│   ├── code_store.py        ← ★ Git-like 版本追蹤 + AST 模組地圖
+│   └── insight_dag.py       ← ★ DAG 知識圖 + relevance 評分
 │
 ├── supervisor/
-│   ├── supervisor.py        ← 主管（拆任務、分配工人、管進度）
+│   ├── supervisor.py        ← 主管（InsightDAG 記憶蒸餾 + 自適應決策）
 │   ├── planner.py           ← 任務拆解（goal → 小任務清單）
-│   └── reporter.py          ← 報告生成（英文/中文）
+│   └── reporter.py          ← 報告生成（英文/中文 + working memory）
 │
 ├── workers/
-│   ├── base_worker.py       ← Worker 基底類別
+│   ├── base_worker.py       ← Worker 基底類別（tool executor hook）
 │   ├── explorer.py          ← 探索者（搜論文/搜 dataset）
-│   ├── coder.py             ← 寫程式的（寫 code/跑 code）
+│   ├── coder.py             ← 寫程式的（自動版本追蹤 + 智慧 fix context）
 │   └── reviewer.py          ← 審查者（跑 benchmark/分析結果）
 │
 ├── knowledge/
@@ -474,7 +465,7 @@ ai_research_agent/
 │
 ├── mcp_servers/              ← 實際的工具實作
 │   ├── paper_search.py      ← arXiv + Semantic Scholar + OpenAlex
-│   ├── code_runner.py       ← Python 程式碼執行 + 檔案讀寫
+│   ├── code_runner.py       ← ★ Python 執行 + workspace scoping factory
 │   ├── dataset_fetch.py     ← HuggingFace + LeetCode + HumanEval
 │   └── github_search.py     ← GitHub 搜尋
 │
@@ -484,13 +475,12 @@ ai_research_agent/
 │   └── builtin/
 │
 └── missions/                 ← ★ 所有任務的資料都在這裡
-    ├── mission_20260303_185200_flash_attention_search/
-    │   ├── mission.json
-    │   ├── knowledge/       ← 論文、程式碼、實驗結果
-    │   ├── reports/         ← 最終報告
-    │   ├── workspace/       ← 暫存
-    │   └── state/           ← checkpoint
-    └── mission_20260303_190000_.../
+    └── mission_<timestamp>_<slug>/
+        ├── mission.json
+        ├── state/           ← checkpoint（InsightDAG + working memory）
+        ├── knowledge/       ← 論文、程式碼、實驗結果
+        ├── workspace/       ← Coder 的隔離工作區 + .code_store/
+        └── reports/         ← 最終報告
 ```
 
 ---
@@ -499,16 +489,24 @@ ai_research_agent/
 
 ### Q: 跑一次要花多少錢 / 多久？
 
-每個任務大概跑 3-7 個小任務，每個小任務最多 10 輪 LLM 對話。以 MiniMax-M2.5 的定價來說成本很低。時間取決於任務複雜度，通常 2-10 分鐘。
+每個任務大概跑 3-10 個 cycle，每個 cycle 有 1-2 次 LLM 呼叫（蒸餾 + 決策 + worker）。以 MiniMax-M2.5 的定價來說成本很低。時間取決於任務複雜度，通常 2-10 分鐘。
 
 ### Q: 可以換成 GPT-4 / Claude 嗎？
 
 理論上可以，但需要改 `core/llm.py` 裡的 `MiniMaxClient` 換成 OpenAI 或 Anthropic 的 API。介面是相容的（都是 OpenAI function calling 格式）。
 
-### Q: 程式碼跑不了外部套件怎麼辦？
-
-目前只支援 Python 標準庫。如果你需要跑 numpy/torch，可以改 `mcp_servers/code_runner.py` 裡面的 `run_python_code`，讓它用你本機的 Python 環境。
-
 ### Q: 知識庫滿了會怎樣？
 
 知識樹有自動重組機制：當一個分類超過 20 筆時，會用 LLM 自動拆成子分類。你不用管它。
+
+### Q: InsightDAG 會不會無限增長？
+
+不會。InsightDAG 有自動衰減機制：每次蒸餾時，不重要的 insight 的 relevance 會乘以 0.8 衰減，低於 0.1 就歸檔。歸檔的 insight 不參與決策但保留可追溯。通常 active insights 維持在 10-20 個。
+
+### Q: 版本追蹤會不會佔很多空間？
+
+每個版本就是一個 Python 檔案的副本（通常幾 KB），外加一個 diff 檔和 JSON manifest。一個典型的 10-cycle 任務可能產生 5-10 個版本，大概 50-100 KB。完全可忽略。
+
+### Q: 舊的 checkpoint 可以用嗎？
+
+可以。系統有向後相容：舊的 checkpoint 用 flat list 存 insights，系統會自動用 `InsightDAG.from_legacy_list()` 遷移成 DAG 格式。不需要手動轉換。

@@ -19,14 +19,17 @@ class Reporter:
 
     def generate(self, goal: str, completed_tasks: list[dict],
                  pending_tasks: list[dict], knowledge_stats: dict,
-                 errors: list[str] = None) -> str:
+                 errors: list[str] = None,
+                 working_memory: str = "") -> str:
         """Generate a markdown progress report in the configured language."""
         if self.language == "zh":
             report = self._build_zh_report(goal, completed_tasks, pending_tasks,
-                                           knowledge_stats, errors)
+                                           knowledge_stats, errors,
+                                           working_memory)
         else:
             report = self._build_en_report(goal, completed_tasks, pending_tasks,
-                                           knowledge_stats, errors)
+                                           knowledge_stats, errors,
+                                           working_memory)
 
         # Save to file
         ts = time.strftime("%Y%m%d_%H%M%S")
@@ -39,7 +42,8 @@ class Reporter:
 
     def _build_en_report(self, goal: str, completed_tasks: list[dict],
                          pending_tasks: list[dict], knowledge_stats: dict,
-                         errors: list[str] = None) -> str:
+                         errors: list[str] = None,
+                         working_memory: str = "") -> str:
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
         total = len(completed_tasks) + len(pending_tasks)
 
@@ -47,9 +51,13 @@ class Reporter:
             f"# Research Mission Report",
             f"\nGenerated: {timestamp}",
             f"\n## Mission Goal\n\n{goal}",
-            f"\n## Progress ({len(completed_tasks)}/{total} tasks)",
-            "",
         ]
+
+        if working_memory:
+            sections.append(f"\n## Current Understanding\n\n{working_memory}")
+
+        sections.append(f"\n## Progress ({len(completed_tasks)}/{total} tasks)")
+        sections.append("")
 
         if completed_tasks:
             sections.append("### Completed")
@@ -86,7 +94,8 @@ class Reporter:
 
     def _build_zh_report(self, goal: str, completed_tasks: list[dict],
                          pending_tasks: list[dict], knowledge_stats: dict,
-                         errors: list[str] = None) -> str:
+                         errors: list[str] = None,
+                         working_memory: str = "") -> str:
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
         total = len(completed_tasks) + len(pending_tasks)
 
@@ -94,9 +103,15 @@ class Reporter:
             f"# 研究任務報告",
             f"\n產生時間：{timestamp}",
             f"\n## 任務目標\n\n{goal}",
+        ]
+
+        if working_memory:
+            sections.append(f"\n## 目前研究理解\n\n{working_memory}")
+
+        sections.extend([
             f"\n## 進度（{len(completed_tasks)}/{total} 項任務）",
             "",
-        ]
+        ])
 
         if completed_tasks:
             sections.append("### 已完成")

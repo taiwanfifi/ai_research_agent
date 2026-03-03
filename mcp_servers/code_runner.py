@@ -7,6 +7,11 @@
 - read_file: 讀取 workspace 中的檔案
 - pip_install: 安裝 Python 套件
 - detect_hardware: 偵測 GPU / 硬體環境
+
+Workspace scoping:
+    By default, tools operate in a global workspace (ai_research_agent/workspace/).
+    Use create_workspace_tools(path) to get mission-scoped tool functions
+    bound to a specific workspace directory.
 """
 
 import json
@@ -15,19 +20,91 @@ import subprocess
 import sys
 import tempfile
 
-WORKSPACE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "workspace")
-os.makedirs(WORKSPACE, exist_ok=True)
+# Default workspace (backward-compat fallback for standalone use)
+_DEFAULT_WORKSPACE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "workspace")
+os.makedirs(_DEFAULT_WORKSPACE, exist_ok=True)
 
 # Default timeout: 300s (5 minutes) for GPU workloads
 DEFAULT_TIMEOUT = int(os.environ.get("CODE_TIMEOUT", "300"))
 
+
+# ── Workspace-scoped tool factory ────────────────────────────────────
+
+def create_workspace_tools(workspace_dir: str) -> dict:
+    """
+    Create tool functions scoped to a specific workspace directory.
+
+    Returns a dict of {name: function} that can replace the default
+    module-level functions in the ToolRegistry after registration.
+
+    This is the key to mission-isolated file I/O: each mission gets
+    its own workspace, and all code execution happens there.
+    """
+    os.makedirs(workspace_dir, exist_ok=True)
+
+    def _run_python_code(code: str, timeout: int = None) -> dict:
+        """Execute Python code in a subprocess within the scoped workspace."""
+        if timeout is None:
+            timeout = DEFAULT_TIMEOUT
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".py", dir=workspace_dir, delete=False
+        ) as f:
+            f.write(code)
+            f.flush()
+            tmp_path = f.name
+        try:
+            result = subprocess.run(
+                [sys.executable, tmp_path],
+                capture_output=True, text=True, timeout=timeout,
+                cwd=workspace_dir,
+            )
+            return {
+                "success": result.returncode == 0,
+                "stdout": result.stdout[:5000],
+                "stderr": result.stderr[:3000],
+                "returncode": result.returncode,
+            }
+        except subprocess.TimeoutExpired:
+            return {"success": False, "stdout": "", "stderr": f"Timeout after {timeout}s", "returncode": -1}
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    def _write_file(filename: str, content: str) -> dict:
+        """Write a file to the scoped workspace."""
+        safe_name = os.path.basename(filename)
+        path = os.path.join(workspace_dir, safe_name)
+        with open(path, "w") as f:
+            f.write(content)
+        return {"success": True, "path": path, "size": len(content)}
+
+    def _read_file(filename: str) -> dict:
+        """Read a file from the scoped workspace."""
+        safe_name = os.path.basename(filename)
+        path = os.path.join(workspace_dir, safe_name)
+        if not os.path.exists(path):
+            return {"success": False, "error": f"File not found: {safe_name}"}
+        with open(path) as f:
+            content = f.read()
+        return {"success": True, "filename": safe_name, "content": content[:5000], "size": len(content)}
+
+    return {
+        "run_python_code": _run_python_code,
+        "write_file": _write_file,
+        "read_file": _read_file,
+    }
+
+
+# ── Default (unscoped) functions — used when registered as a module ──
 
 def run_python_code(code: str, timeout: int = None) -> dict:
     """在 subprocess 中執行 Python 程式碼（可用 torch, numpy 等已安裝套件）"""
     if timeout is None:
         timeout = DEFAULT_TIMEOUT
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", dir=WORKSPACE, delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", dir=_DEFAULT_WORKSPACE, delete=False) as f:
         f.write(code)
         f.flush()
         tmp_path = f.name
@@ -36,7 +113,7 @@ def run_python_code(code: str, timeout: int = None) -> dict:
         result = subprocess.run(
             [sys.executable, tmp_path],
             capture_output=True, text=True, timeout=timeout,
-            cwd=WORKSPACE,
+            cwd=_DEFAULT_WORKSPACE,
         )
         return {
             "success": result.returncode == 0,
@@ -56,7 +133,7 @@ def run_python_code(code: str, timeout: int = None) -> dict:
 def write_file(filename: str, content: str) -> dict:
     """寫入檔案到 workspace"""
     safe_name = os.path.basename(filename)
-    path = os.path.join(WORKSPACE, safe_name)
+    path = os.path.join(_DEFAULT_WORKSPACE, safe_name)
     with open(path, "w") as f:
         f.write(content)
     return {"success": True, "path": path, "size": len(content)}
@@ -65,7 +142,7 @@ def write_file(filename: str, content: str) -> dict:
 def read_file(filename: str) -> dict:
     """讀取 workspace 中的檔案"""
     safe_name = os.path.basename(filename)
-    path = os.path.join(WORKSPACE, safe_name)
+    path = os.path.join(_DEFAULT_WORKSPACE, safe_name)
     if not os.path.exists(path):
         return {"success": False, "error": f"File not found: {safe_name}"}
     with open(path) as f:

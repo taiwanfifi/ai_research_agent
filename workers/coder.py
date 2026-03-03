@@ -6,8 +6,12 @@ Uses run_python_code, write_file, read_file, pip_install, detect_hardware.
 
 Hardware-aware: reads HW_ENV_SUMMARY from config so the LLM knows
 what GPU is available and writes appropriate device code.
+
+Version-tracked: when a CodeVersionStore is provided, every write_file
+call is automatically tracked with snapshots, diffs, and AST module maps.
 """
 
+import json
 from config import HW_ENV_SUMMARY
 from workers.base_worker import BaseWorker
 
@@ -49,10 +53,17 @@ class CoderWorker(BaseWorker):
 - For large models, check memory before loading (`torch.cuda.mem_get_info()` or estimate)
 
 ## Code Quality
-- Write modular, testable code
+- Write modular, testable code with clear function boundaries
+- Use type annotations for function signatures
+- Include docstrings for public functions
 - Include basic tests/assertions to verify correctness
 - Report performance metrics (time, memory, throughput) when relevant
 - If implementing a paper's algorithm, cite the specific equations/sections
+
+## Modular Code Guidelines
+- Break code into small, focused functions (one responsibility each)
+- Define clear I/O contracts: typed parameters and return values
+- When fixing a bug, modify only the affected function — do NOT rewrite the whole file
 
 ## Output Format
 - Show the code you wrote
@@ -61,6 +72,63 @@ class CoderWorker(BaseWorker):
 - Note any limitations or next steps
 
 Respond in the same language as the task."""
+
+    def __init__(self, llm, registry, event_bus=None, knowledge_tree=None,
+                 code_store=None):
+        super().__init__(llm, registry, event_bus, knowledge_tree)
+        self.code_store = code_store
+
+    def _get_tool_executor(self):
+        """Wrap write_file calls to auto-track with code store."""
+        base_executor = self.registry.execute
+        if not self.code_store:
+            return base_executor
+
+        code_store = self.code_store
+
+        def tracked_executor(func_name: str, func_args: dict) -> str:
+            result = base_executor(func_name, func_args)
+            if func_name == "write_file":
+                try:
+                    filename = func_args.get("filename", "")
+                    content = func_args.get("content", "")
+                    if filename and content:
+                        code_store.track_write(
+                            filename, content,
+                            reason=f"coder write (task context)",
+                        )
+                except Exception:
+                    pass  # Best-effort
+            return result
+
+        return tracked_executor
+
+    def run(self, task: str, context: str = "") -> dict:
+        """Run with code store context injected."""
+        # Inject workspace summary and fix context
+        if self.code_store:
+            extra_context_parts = []
+
+            summary = self.code_store.get_workspace_summary()
+            if summary:
+                extra_context_parts.append(summary)
+
+            # If this looks like a bug fix, provide targeted context
+            if any(kw in task.lower() for kw in ("fix", "error", "bug", "fail", "debug")):
+                # Try to find the relevant file from the task description
+                import re
+                file_match = re.search(r'(\w+\.py)', task)
+                if file_match:
+                    fix_ctx = self.code_store.get_fix_context(
+                        file_match.group(1), task
+                    )
+                    if fix_ctx:
+                        extra_context_parts.append(fix_ctx)
+
+            if extra_context_parts:
+                context = context + "\n\n" + "\n\n".join(extra_context_parts) if context else "\n\n".join(extra_context_parts)
+
+        return super().run(task, context=context)
 
     def _get_tools(self) -> list[dict]:
         """Only include code execution tools."""
