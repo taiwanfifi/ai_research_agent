@@ -595,11 +595,19 @@ class Supervisor:
                 except Exception:
                     pass
 
+            # get_summary returns a dict — convert to string for the judge
+            knowledge_raw = self.knowledge.get_summary(depth=1)
+            if isinstance(knowledge_raw, dict):
+                import json as _json
+                knowledge_str = _json.dumps(knowledge_raw, ensure_ascii=False, default=str)
+            else:
+                knowledge_str = str(knowledge_raw)
+
             assessment = self.llm_judge.assess_progress(
                 goal=self.goal,
                 completed_tasks=self.completed_tasks,
                 workspace_files=workspace_files,
-                knowledge_summary=self.knowledge.get_summary(depth=1),
+                knowledge_summary=knowledge_str,
                 working_memory=self.working_memory,
             )
 

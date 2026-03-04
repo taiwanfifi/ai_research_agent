@@ -28,6 +28,9 @@ os.makedirs(_DEFAULT_WORKSPACE, exist_ok=True)
 # Default timeout: 300s (5 minutes) for GPU workloads
 DEFAULT_TIMEOUT = int(os.environ.get("CODE_TIMEOUT", "300"))
 
+# Memory limit per subprocess (in bytes). Default 6GB — prevents Mac OOM reboot.
+_MEM_LIMIT_BYTES = int(os.environ.get("CODE_MEM_LIMIT", str(6 * 1024**3)))
+
 # Track spawned process PIDs for mission-end cleanup
 _active_pids: set = set()
 
@@ -58,11 +61,21 @@ def create_workspace_tools(workspace_dir: str) -> dict:
             f.flush()
             tmp_path = f.name
 
+        # Set memory limit via resource module (soft limit only, hard stays unchanged)
+        def _set_mem_limit():
+            try:
+                import resource
+                resource.setrlimit(resource.RLIMIT_AS,
+                                   (_MEM_LIMIT_BYTES, _MEM_LIMIT_BYTES))
+            except (ImportError, ValueError, OSError):
+                pass  # Non-Unix or limit not supported
+
         proc = subprocess.Popen(
             [sys.executable, tmp_path],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, cwd=workspace_dir,
             start_new_session=True,  # New process group for cleanup
+            preexec_fn=_set_mem_limit,
         )
         _active_pids.add(proc.pid)
         try:
@@ -131,11 +144,20 @@ def run_python_code(code: str, timeout: int = None) -> dict:
         f.flush()
         tmp_path = f.name
 
+    def _set_mem_limit():
+        try:
+            import resource
+            resource.setrlimit(resource.RLIMIT_AS,
+                               (_MEM_LIMIT_BYTES, _MEM_LIMIT_BYTES))
+        except (ImportError, ValueError, OSError):
+            pass
+
     proc = subprocess.Popen(
         [sys.executable, tmp_path],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, cwd=_DEFAULT_WORKSPACE,
         start_new_session=True,
+        preexec_fn=_set_mem_limit,
     )
     _active_pids.add(proc.pid)
     try:
