@@ -56,6 +56,21 @@ class BaseWorker:
             except Exception:
                 pass
 
+        # Gather platform info so worker knows hardware constraints
+        import platform, os as _os
+        platform_info = f"Platform: {platform.system()} {platform.machine()}"
+        if platform.system() == "Darwin" and "arm" in platform.machine().lower():
+            platform_info += " (Apple Silicon — MPS backend, no CUDA, bitsandbytes incompatible)"
+        mem_gb = _os.sysconf('SC_PAGE_SIZE') * _os.sysconf('SC_PHYS_PAGES') / (1024**3)
+        platform_info += f", RAM: {mem_gb:.0f}GB"
+
+        # Gather recent failure history (if any)
+        failure_context = ""
+        if hasattr(self, '_recent_failures') and self._recent_failures:
+            failure_context = "\n## Recent failures from similar tasks\n"
+            for f in self._recent_failures[-3:]:
+                failure_context += f"- {f}\n"
+
         prompt = f"""You are the inner voice of a {self.WORKER_NAME} agent. Before executing a task, you must reflect.
 
 ## Task assigned to you
@@ -63,8 +78,11 @@ class BaseWorker:
 
 ## Context from supervisor
 {context if context else '(none)'}
-{workspace_info}
 
+## Environment
+{platform_info}
+{workspace_info}
+{failure_context}
 ## Your reflection process
 Think about:
 1. Is this task clearly defined? What information am I missing?

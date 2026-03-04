@@ -1124,6 +1124,12 @@ Respond with ONLY JSON:
             error_msg = f"[{worker_name}] {task_desc[:60]}: {result.get('error', 'unknown')}"
             self.errors.append(error_msg)
             print(f"  [Supervisor] ✗ {worker_name} failed: {result.get('error', '')[:100]}")
+            # Feed failure info to worker's inner monologue for future tasks
+            if not hasattr(worker, '_recent_failures'):
+                worker._recent_failures = []
+            worker._recent_failures.append(
+                f"Task '{task_desc[:80]}' failed: {result.get('error', 'unknown')[:120]}"
+            )
 
         # Track consecutive failures for smarter pivoting
         if result.get("success"):
