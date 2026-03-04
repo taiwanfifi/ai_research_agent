@@ -31,6 +31,8 @@ class BaseWorker:
         self.mission_id: str = ""
         self.result_verifier = None  # Set by supervisor
         self.execution_log = None    # Set by supervisor (structured pipeline)
+        self.llm_judge = None        # Set by supervisor (Round 11)
+        self.validation_mode = "keyword"  # Set by supervisor (Round 11)
         self._current_cycle: int = 0  # Set by supervisor before dispatch
 
     def _get_tool_executor(self):
@@ -72,6 +74,8 @@ class BaseWorker:
             tool_calls_log.append({"name": name, "args": args})
             print(f"  [{self.WORKER_NAME}] Tool: {name}")
 
+        stdout_capture = []  # Capture stdout for LLM judge
+
         def on_tool_result(name, result):
             # Record to execution log (structured pipeline)
             if self.execution_log and name in ("run_python_code", "write_file"):
@@ -100,22 +104,25 @@ class BaseWorker:
                 except (json.JSONDecodeError, AttributeError):
                     pass
 
-            # Capture stdout for result verification
-            if name == "run_python_code" and self.result_verifier and result:
+            # Capture stdout for result verification (both keyword and LLM judge modes)
+            if name == "run_python_code" and result:
                 try:
                     parsed = json.loads(result) if isinstance(result, str) else result
                     stdout = parsed.get("stdout", "") if isinstance(parsed, dict) else ""
                     if stdout:
-                        self.result_verifier.capture(
-                            cycle=self._current_cycle,
-                            worker=self.WORKER_NAME,
-                            stdout=stdout,
-                        )
+                        stdout_capture.append(stdout)
+                        # Feed to keyword-based verifier if active
+                        if self.result_verifier:
+                            self.result_verifier.capture(
+                                cycle=self._current_cycle,
+                                worker=self.WORKER_NAME,
+                                stdout=stdout,
+                            )
                 except (json.JSONDecodeError, AttributeError):
                     pass
 
-            # Run sanity checks on raw stdout
-            if name == "run_python_code" and result:
+            # Run sanity checks on raw stdout (keyword mode only)
+            if name == "run_python_code" and result and self.validation_mode == "keyword":
                 try:
                     parsed = json.loads(result) if isinstance(result, str) else result
                     stdout = parsed.get("stdout", "") if isinstance(parsed, dict) else ""
@@ -158,48 +165,23 @@ class BaseWorker:
             # Store tool calls log on self BEFORE validation so subclass validators can use it
             self._last_tool_calls = tool_calls_log
 
-            # Validate output quality before declaring success
-            validation = self._validate_output(full_output)
-
-            result = {
-                "success": validation["valid"],
-                "output": full_output,
-                "messages": messages,
-                "worker": self.WORKER_NAME,
-                "elapsed_s": round(elapsed, 1),
-                "tool_calls": tool_calls_log,
-            }
-            if not validation["valid"]:
-                result["error"] = f"Output validation failed: {validation['reason']}"
-                print(f"  [{self.WORKER_NAME}] VALIDATION FAILED: {validation['reason']}")
-
-            # Run result verification (check claims vs stdout) — ENFORCING
-            if validation["valid"] and self.result_verifier:
-                try:
-                    verification = self.result_verifier.verify_output(full_output)
-                    result["verification_score"] = verification.score
-                    if verification.contradicted:
-                        # ENFORCE: contradicted claims = fabrication detected
-                        contradiction_msgs = [c.raw_text for c in verification.contradicted]
-                        result["success"] = False
-                        result["error"] = f"Fabrication detected — claims contradict stdout: {'; '.join(contradiction_msgs)}"
-                        for c in verification.contradicted:
-                            print(f"  [{self.WORKER_NAME}] FABRICATION BLOCKED: {c.raw_text}")
-                    elif verification.score == 0.0 and len(verification.claims) > 2:
-                        # Many claims but zero verified — suspicious
-                        result["verification_warning"] = "No claims could be verified against stdout"
-                        for w in verification.warnings:
-                            print(f"  [{self.WORKER_NAME}] Verify warning: {w}")
-                    else:
-                        if verification.warnings:
-                            for w in verification.warnings:
-                                print(f"  [{self.WORKER_NAME}] Verify warning: {w}")
-                except Exception:
-                    pass
+            # ── Validation: LLM Judge or Keyword-based ──────────────
+            if self.llm_judge and self.validation_mode in ("llm_full", "llm_critical", "hybrid"):
+                result = self._validate_with_llm_judge(
+                    task, full_output, stdout_capture, tool_calls_log,
+                    messages, elapsed,
+                )
+            else:
+                result = self._validate_with_keywords(
+                    full_output, tool_calls_log, messages, elapsed,
+                )
 
             # Auto-save to knowledge tree (only if valid)
             if result["success"]:
-                self._save_to_knowledge(task, full_output)
+                judge_summary = ""
+                if result.get("judge_result"):
+                    judge_summary = result["judge_result"].get("summary", "")
+                self._save_to_knowledge(task, full_output, judge_summary=judge_summary)
 
             if self.event_bus:
                 self.event_bus.emit(EventType.WORKER_FINISHED, {
@@ -222,24 +204,28 @@ class BaseWorker:
                     "worker": self.WORKER_NAME, "task": task, "error": str(e),
                 }, source=self.WORKER_NAME)
 
+        # Flush execution log to disk (deferred writes)
+        if self.execution_log:
+            self.execution_log.flush()
+
         return result
 
     def _get_tools(self) -> list[dict]:
         """Get tool definitions for this worker. Override to filter."""
         return self.registry.tools
 
-    def _save_to_knowledge(self, task: str, output: str):
+    def _save_to_knowledge(self, task: str, output: str,
+                           judge_summary: str = ""):
         """Save worker output to knowledge tree.
 
-        Uses the LAST substantial response (which should contain the
-        mandatory final summary) for the knowledge summary, rather than
-        the first 200 chars which is usually procedural narration.
+        Uses LLM judge summary (Round 11) when available, otherwise
+        the LAST substantial response for the knowledge summary.
         """
         if not self.knowledge:
             return
 
-        # Extract a meaningful summary from the output
-        summary = self._extract_summary(output)
+        # Prefer LLM judge summary if available
+        summary = judge_summary if judge_summary else self._extract_summary(output)
 
         # Skip knowledge entry if output is essentially empty/procedural
         if len(summary) < 50:
@@ -264,6 +250,110 @@ class BaseWorker:
             self.event_bus.emit(EventType.KNOWLEDGE_ADDED, {
                 "category": self.CATEGORY, "item_id": item_id,
             }, source=self.WORKER_NAME)
+
+    def _validate_with_llm_judge(self, task: str, full_output: str,
+                                stdout_capture: list, tool_calls_log: list,
+                                messages: list, elapsed: float) -> dict:
+        """Validate using LLM Judge (Round 11). Falls back to keywords on failure."""
+        print(f"  [{self.WORKER_NAME}] Running LLM Judge evaluation...")
+        judge_result = self.llm_judge.evaluate_worker_output(
+            task=task,
+            output=full_output,
+            stdout_parts=stdout_capture,
+            tool_calls=tool_calls_log,
+        )
+
+        # If LLM call failed, fall back to keyword validation
+        if not judge_result.get("_parse_ok", True):
+            print(f"  [{self.WORKER_NAME}] LLM Judge failed, falling back to keyword validation")
+            return self._validate_with_keywords(
+                full_output, tool_calls_log, messages, elapsed,
+            )
+
+        # Determine success from judge evaluation
+        is_valid = judge_result.get("is_substantive", True)
+        error_msg = ""
+
+        if not is_valid:
+            error_msg = "Output validation failed: LLM Judge determined output is not substantive"
+
+        # Check for contradicted claims (fabrication detection)
+        contradicted = [c for c in judge_result.get("claims_vs_stdout", [])
+                       if c.get("status") == "contradicted"]
+        if contradicted and is_valid:
+            contradiction_msgs = [c.get("claim", "") for c in contradicted]
+            is_valid = False
+            error_msg = f"Fabrication detected — claims contradict stdout: {'; '.join(contradiction_msgs)}"
+            for c in contradicted:
+                print(f"  [{self.WORKER_NAME}] FABRICATION BLOCKED: {c.get('claim', '')}")
+
+        # Calculate verification score from claims
+        claims = judge_result.get("claims_vs_stdout", [])
+        verification_score = 1.0
+        if claims:
+            verified = sum(1 for c in claims if c.get("status") == "verified")
+            verification_score = verified / len(claims)
+
+        result = {
+            "success": is_valid,
+            "output": full_output,
+            "messages": messages,
+            "worker": self.WORKER_NAME,
+            "elapsed_s": round(elapsed, 1),
+            "tool_calls": tool_calls_log,
+            "verification_score": verification_score,
+            "judge_result": judge_result,
+        }
+        if error_msg:
+            result["error"] = error_msg
+            print(f"  [{self.WORKER_NAME}] VALIDATION FAILED: {error_msg}")
+
+        # Log quality concerns
+        for concern in judge_result.get("quality_concerns", []):
+            print(f"  [{self.WORKER_NAME}] Quality concern: {concern}")
+
+        return result
+
+    def _validate_with_keywords(self, full_output: str, tool_calls_log: list,
+                                 messages: list, elapsed: float) -> dict:
+        """Original keyword-based validation + ResultVerifier (pre-Round 11)."""
+        validation = self._validate_output(full_output)
+
+        result = {
+            "success": validation["valid"],
+            "output": full_output,
+            "messages": messages,
+            "worker": self.WORKER_NAME,
+            "elapsed_s": round(elapsed, 1),
+            "tool_calls": tool_calls_log,
+        }
+        if not validation["valid"]:
+            result["error"] = f"Output validation failed: {validation['reason']}"
+            print(f"  [{self.WORKER_NAME}] VALIDATION FAILED: {validation['reason']}")
+
+        # Run result verification (check claims vs stdout) — ENFORCING
+        if validation["valid"] and self.result_verifier:
+            try:
+                verification = self.result_verifier.verify_output(full_output)
+                result["verification_score"] = verification.score
+                if verification.contradicted:
+                    contradiction_msgs = [c.raw_text for c in verification.contradicted]
+                    result["success"] = False
+                    result["error"] = f"Fabrication detected — claims contradict stdout: {'; '.join(contradiction_msgs)}"
+                    for c in verification.contradicted:
+                        print(f"  [{self.WORKER_NAME}] FABRICATION BLOCKED: {c.raw_text}")
+                elif verification.score == 0.0 and len(verification.claims) > 2:
+                    result["verification_warning"] = "No claims could be verified against stdout"
+                    for w in verification.warnings:
+                        print(f"  [{self.WORKER_NAME}] Verify warning: {w}")
+                else:
+                    if verification.warnings:
+                        for w in verification.warnings:
+                            print(f"  [{self.WORKER_NAME}] Verify warning: {w}")
+            except Exception:
+                pass
+
+        return result
 
     def _validate_output(self, output: str) -> dict:
         """Validate that worker output is substantive, not just procedural narration.

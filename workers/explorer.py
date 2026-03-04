@@ -83,10 +83,17 @@ Respond in the same language as the task."""
         ]
 
     def _validate_output(self, output: str) -> dict:
-        """Explorer must find actual papers, not just narrate searching."""
+        """Explorer must find actual papers, not just narrate searching.
+
+        Note: In LLM judge modes, _validate_with_llm_judge() handles this instead.
+        """
         base = super()._validate_output(output)
         if not base["valid"]:
             return base
+
+        # In LLM judge mode, the judge handles paper detection via has_papers
+        if self.validation_mode != "keyword":
+            return {"valid": True, "reason": ""}
 
         # Must mention at least one paper title or arXiv ID
         has_papers = any(marker in output for marker in [

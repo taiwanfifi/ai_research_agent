@@ -73,11 +73,21 @@ def _grade_from_score(score: float) -> str:
 
 
 class MissionScorer:
-    """Rule-based mission quality scorer."""
+    """Mission quality scorer — rule-based or LLM Judge (Round 11)."""
+
+    def __init__(self, llm_judge=None):
+        """
+        Args:
+            llm_judge: Optional LLMJudge instance for semantic scoring.
+                       Falls back to regex/rule-based scoring when None.
+        """
+        self.llm_judge = llm_judge
 
     def score_mission(self, mission_dir: str) -> MissionScore:
         """
         Score a mission from its directory.
+
+        Uses LLM Judge (Call 3) when available, falls back to rule-based scoring.
 
         Args:
             mission_dir: Path to mission_YYYYMMDD_HHMMSS_slug/
@@ -98,7 +108,19 @@ class MissionScorer:
         completed_tasks = checkpoint.get("completed_tasks", [])
         execution_log = self._read_json(os.path.join(workspace_dir, "execution_log.json"))
 
-        # Score each dimension
+        # Try LLM Judge scoring first (Round 11)
+        if self.llm_judge:
+            try:
+                score = self._score_with_llm_judge(
+                    mission_dir, manifest, checkpoint, workspace_dir,
+                    reports_dir, completed_tasks, execution_log, mission_id,
+                )
+                self._save_score(workspace_dir, score)
+                return score
+            except Exception as e:
+                print(f"  [MissionScorer] LLM Judge scoring failed ({e}), falling back to rule-based")
+
+        # Fallback: rule-based scoring
         dimensions = [
             self._score_literature(completed_tasks, knowledge_dir),
             self._score_code(workspace_dir, completed_tasks, execution_log),
@@ -124,6 +146,74 @@ class MissionScorer:
         self._save_score(workspace_dir, score)
 
         return score
+
+    def _score_with_llm_judge(self, mission_dir, manifest, checkpoint,
+                               workspace_dir, reports_dir, completed_tasks,
+                               execution_log, mission_id) -> MissionScore:
+        """Score using LLM Judge Call 3."""
+        import time
+
+        goal = manifest.get("goal", "")
+
+        # Gather workspace files
+        workspace_files = []
+        if os.path.isdir(workspace_dir):
+            for root, dirs, fnames in os.walk(workspace_dir):
+                for fn in fnames:
+                    if '__pycache__' not in root:
+                        rel = os.path.relpath(os.path.join(root, fn), workspace_dir)
+                        sz = os.path.getsize(os.path.join(root, fn))
+                        workspace_files.append(f"{rel} ({sz}B)")
+
+        # Get execution log summary
+        exec_summary = ""
+        if execution_log:
+            from core.execution_log import ExecutionLog
+            elog = ExecutionLog.from_dict(execution_log, workspace_dir)
+            exec_summary = elog.get_summary_for_prompt()
+
+        # Read latest report
+        report_content = ""
+        if os.path.isdir(reports_dir):
+            report_files = sorted(glob.glob(os.path.join(reports_dir, "*.md")))
+            if report_files:
+                try:
+                    with open(report_files[-1], "r", encoding="utf-8") as f:
+                        report_content = f.read()
+                except Exception:
+                    pass
+
+        # Call LLM Judge
+        judge_result = self.llm_judge.score_mission(
+            goal=goal,
+            workspace_files=workspace_files,
+            exec_summary=exec_summary,
+            report_content=report_content,
+            completed_tasks=completed_tasks,
+        )
+
+        # Convert to MissionScore
+        weights = {
+            "literature": 0.15, "code": 0.20, "results": 0.25,
+            "verification": 0.15, "artifacts": 0.10, "report": 0.15,
+        }
+        dimensions = []
+        for dim_name, weight in weights.items():
+            dim_data = judge_result.get(dim_name, {})
+            dimensions.append(DimensionScore(
+                name=dim_name,
+                score=dim_data.get("score", 0),
+                weight=weight,
+                evidence=[dim_data.get("evidence", "")],
+            ))
+
+        return MissionScore(
+            dimensions=dimensions,
+            overall=judge_result.get("overall", 0),
+            grade=judge_result.get("grade", "F"),
+            mission_id=mission_id,
+            scored_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+        )
 
     # ── Dimension scorers ─────────────────────────────────────────
 

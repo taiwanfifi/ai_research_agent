@@ -170,8 +170,48 @@ Respond in the same language as the task."""
             if t["function"]["name"] in CODER_TOOLS
         ]
 
+    def _validate_with_llm_judge(self, task, full_output, stdout_capture,
+                                  tool_calls_log, messages, elapsed):
+        """Coder override: check workspace files BEFORE running LLM judge."""
+        # Filesystem check — must have real files regardless of validation mode
+        has_real_files = False
+        if hasattr(self, '_workspace_dir') and self._workspace_dir:
+            import os, glob
+            ws_files = glob.glob(os.path.join(self._workspace_dir, '*'))
+            real_files = [f for f in ws_files
+                          if not os.path.basename(f).startswith(('tmp_', '.'))
+                          and '__pycache__' not in f
+                          and '.code_store' not in f]
+            has_real_files = len(real_files) > 0
+
+        if not has_real_files and tool_calls_log:
+            has_real_files = any(
+                tc.get("name") == "write_file" and tc.get("file_written")
+                for tc in tool_calls_log
+            )
+
+        if not has_real_files:
+            return {
+                "success": False,
+                "output": full_output,
+                "messages": messages,
+                "worker": self.WORKER_NAME,
+                "elapsed_s": round(elapsed, 1),
+                "tool_calls": tool_calls_log,
+                "error": "No files found in workspace — code was not saved via write_file",
+            }
+
+        # Filesystem OK → run LLM judge
+        return super()._validate_with_llm_judge(
+            task, full_output, stdout_capture, tool_calls_log, messages, elapsed,
+        )
+
     def _validate_output(self, output: str) -> dict:
-        """Coder must have real files in workspace, not just text patterns."""
+        """Coder must have real files in workspace, not just text patterns.
+
+        Note: In LLM judge modes (llm_full, llm_critical, hybrid), this method
+        is NOT called — _validate_with_llm_judge() handles everything.
+        """
         base = super()._validate_output(output)
         if not base["valid"]:
             return base
@@ -198,18 +238,19 @@ Respond in the same language as the task."""
         if not has_real_files:
             return {"valid": False, "reason": "No files found in workspace — code was not saved via write_file"}
 
-        # Run sanity checks on the output — errors now block
-        try:
-            from core.sanity_rules import SanityChecker
-            checker = SanityChecker()
-            sanity_result = checker.check_output(output, task_description="")
-            if sanity_result.errors:
-                reasons = "; ".join(v.message for v in sanity_result.errors)
-                return {"valid": False, "reason": f"Sanity check failed: {reasons}"}
-            for v in sanity_result.violations:
-                if v.severity == "warning":
-                    print(f"  [coder] Sanity warning: {v.message}")
-        except Exception:
-            pass  # Best-effort sanity check
+        # Run sanity checks on the output — errors now block (keyword mode only)
+        if self.validation_mode == "keyword":
+            try:
+                from core.sanity_rules import SanityChecker
+                checker = SanityChecker()
+                sanity_result = checker.check_output(output, task_description="")
+                if sanity_result.errors:
+                    reasons = "; ".join(v.message for v in sanity_result.errors)
+                    return {"valid": False, "reason": f"Sanity check failed: {reasons}"}
+                for v in sanity_result.violations:
+                    if v.severity == "warning":
+                        print(f"  [coder] Sanity warning: {v.message}")
+            except Exception:
+                pass  # Best-effort sanity check
 
         return {"valid": True, "reason": ""}

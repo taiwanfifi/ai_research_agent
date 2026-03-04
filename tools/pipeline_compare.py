@@ -2,12 +2,17 @@
 """
 Pipeline A/B Comparison Runner
 ================================
-Runs the same research goal through two pipeline configurations
-(classic vs structured) and compares quality scores.
+Runs the same research goal through N pipeline configurations
+and compares quality scores.
+
+Supports both pipeline_mode (classic/structured) and validation_mode
+(keyword/llm_full/llm_critical/exec_first/hybrid) for Round 11 testing.
 
 Usage:
     python3 -m tools.pipeline_compare "research PEFT methods" --max-cycles 8
     python3 -m tools.pipeline_compare "implement LoRA PEFT" --max-cycles 6
+    python3 -m tools.pipeline_compare "implement LoRA PEFT" --max-cycles 8 \
+        --configs keyword llm_full llm_critical exec_first hybrid
 
 Or via main.py:
     python3 main.py --compare "research PEFT methods" --max-cycles 8
@@ -28,17 +33,59 @@ from config import (
 )
 
 
+# ── Predefined validation mode configs ─────────────────────────────
+
+VALIDATION_CONFIGS = {
+    "keyword": {
+        "name": "keyword",
+        "pipeline_mode": "structured",
+        "validation_mode": "keyword",
+    },
+    "llm_full": {
+        "name": "llm_full",
+        "pipeline_mode": "structured",
+        "validation_mode": "llm_full",
+    },
+    "llm_critical": {
+        "name": "llm_critical",
+        "pipeline_mode": "structured",
+        "validation_mode": "llm_critical",
+    },
+    "exec_first": {
+        "name": "exec_first",
+        "pipeline_mode": "structured",
+        "validation_mode": "exec_first",
+    },
+    "hybrid": {
+        "name": "hybrid",
+        "pipeline_mode": "structured",
+        "validation_mode": "hybrid",
+    },
+    # Legacy configs
+    "classic": {
+        "name": "classic",
+        "pipeline_mode": "classic",
+        "validation_mode": "keyword",
+    },
+    "structured": {
+        "name": "structured",
+        "pipeline_mode": "structured",
+        "validation_mode": "keyword",
+    },
+}
+
+
 def run_comparison(goal: str, max_cycles: int = 8,
                    language: str = "en",
                    configs: list[dict] | None = None) -> dict:
     """
-    Run A/B pipeline comparison.
+    Run N-way pipeline comparison.
 
     Args:
         goal: Research goal string
         max_cycles: Max supervisor cycles per run
         language: Report language
-        configs: Optional list of config dicts. Default: classic + structured.
+        configs: Optional list of config dicts. Default: keyword + llm_full.
 
     Returns:
         Comparison result dict
@@ -48,8 +95,8 @@ def run_comparison(goal: str, max_cycles: int = 8,
 
     if configs is None:
         configs = [
-            {"name": "classic", "pipeline_mode": "classic"},
-            {"name": "structured", "pipeline_mode": "structured"},
+            VALIDATION_CONFIGS["keyword"],
+            VALIDATION_CONFIGS["llm_full"],
         ]
 
     llm = MiniMaxClient(
@@ -62,11 +109,13 @@ def run_comparison(goal: str, max_cycles: int = 8,
 
     for i, cfg in enumerate(configs):
         config_name = cfg["name"]
-        pipeline_mode = cfg.get("pipeline_mode", "classic")
+        pipeline_mode = cfg.get("pipeline_mode", "structured")
+        validation_mode = cfg.get("validation_mode", "keyword")
 
         print(f"\n{'='*60}")
         print(f"  A/B Comparison — Config {i+1}/{len(configs)}: {config_name}")
         print(f"  Pipeline mode: {pipeline_mode}")
+        print(f"  Validation mode: {validation_mode}")
         print(f"  Goal: {goal}")
         print(f"{'='*60}\n")
 
@@ -76,9 +125,8 @@ def run_comparison(goal: str, max_cycles: int = 8,
         )
         print(f"  Mission: {ctx.mission_id}")
 
-        # Build system with specified pipeline_mode
+        # Build system with specified modes
         from main import _make_llm, _make_registry, _check_system_resources
-        from core.tool_registry import ToolRegistry
         from core.event_bus import EventBus
         from core.state import StateStore
         from core.code_store import CodeVersionStore
@@ -114,6 +162,7 @@ def run_comparison(goal: str, max_cycles: int = 8,
             code_store=code_store,
             evolution_store=evolution_store,
             pipeline_mode=pipeline_mode,
+            validation_mode=validation_mode,
         )
 
         t0 = time.perf_counter()
@@ -127,9 +176,13 @@ def run_comparison(goal: str, max_cycles: int = 8,
             success = False
             print(f"  ERROR in {config_name}: {e}")
 
-        # Score the mission
+        # Score the mission (use LLM judge for scoring if the config uses LLM validation)
         from core.mission_scorer import MissionScorer
-        scorer = MissionScorer()
+        judge_for_scoring = None
+        if validation_mode in ("llm_full", "exec_first", "hybrid"):
+            from core.llm_judge import LLMJudge
+            judge_for_scoring = LLMJudge(run_llm)
+        scorer = MissionScorer(llm_judge=judge_for_scoring)
         mission_dir = os.path.dirname(ctx.workspace_dir)
         try:
             score = scorer.score_mission(mission_dir)
@@ -140,6 +193,7 @@ def run_comparison(goal: str, max_cycles: int = 8,
         results.append({
             "config": config_name,
             "pipeline_mode": pipeline_mode,
+            "validation_mode": validation_mode,
             "mission_id": ctx.mission_id,
             "success": success,
             "elapsed_s": round(elapsed, 1),
@@ -170,13 +224,13 @@ def run_comparison(goal: str, max_cycles: int = 8,
     print(f"{'='*60}")
     print(f"  Goal: {goal}")
     print(f"  Max cycles: {max_cycles}")
-    print(f"\n  {'Config':<15} {'Grade':<6} {'Score':<8} {'Time':<10} {'Mission'}")
-    print(f"  {'-'*70}")
+    print(f"\n  {'Config':<15} {'Validation':<14} {'Grade':<6} {'Score':<8} {'Time':<10} {'Mission'}")
+    print(f"  {'-'*80}")
     for r in results:
         s = r["score"]
         grade = s.get("grade", "?")
         overall = s.get("overall", 0)
-        print(f"  {r['config']:<15} {grade:<6} {overall:<8.1f} {r['elapsed_s']:<10.0f}s {r['mission_id']}")
+        print(f"  {r['config']:<15} {r['validation_mode']:<14} {grade:<6} {overall:<8.1f} {r['elapsed_s']:<10.0f}s {r['mission_id']}")
 
     print(f"\n  Saved: {comp_path}")
     print(f"{'='*60}")
@@ -186,16 +240,27 @@ def run_comparison(goal: str, max_cycles: int = 8,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="A/B Pipeline Comparison Runner",
+        description="Pipeline A/B Comparison Runner (supports N configs)",
     )
     parser.add_argument("goal", help="Research goal")
     parser.add_argument("--max-cycles", type=int, default=8,
                         help="Max supervisor cycles per run (default: 8)")
     parser.add_argument("--language", default="en", choices=["en", "zh"],
                         help="Report language")
+    parser.add_argument("--configs", nargs="+",
+                        choices=list(VALIDATION_CONFIGS.keys()),
+                        default=None,
+                        help="Config names to compare (default: keyword + llm_full)")
 
     args = parser.parse_args()
-    run_comparison(args.goal, max_cycles=args.max_cycles, language=args.language)
+
+    # Build config list from names
+    configs = None
+    if args.configs:
+        configs = [VALIDATION_CONFIGS[name] for name in args.configs]
+
+    run_comparison(args.goal, max_cycles=args.max_cycles,
+                   language=args.language, configs=configs)
 
 
 if __name__ == "__main__":

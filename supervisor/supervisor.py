@@ -30,6 +30,7 @@ from core.state import StateStore
 from core.insight_dag import InsightDAG
 from core.result_verifier import ResultVerifier
 from core.execution_log import ExecutionLog
+from core.llm_judge import LLMJudge
 from knowledge.tree import KnowledgeTree
 from supervisor.planner import TaskPlanner
 from supervisor.reporter import Reporter
@@ -89,7 +90,8 @@ class Supervisor:
                  knowledge: KnowledgeTree, reports_dir: str,
                  mission_ctx=None, mission_manager=None,
                  code_store=None, evolution_store=None,
-                 pipeline_mode: str = "classic"):
+                 pipeline_mode: str = "classic",
+                 validation_mode: str = "keyword"):
         self.llm = llm
         self.registry = registry
         self.event_bus = event_bus
@@ -98,12 +100,18 @@ class Supervisor:
         self.mission_ctx = mission_ctx
         self.mission_manager = mission_manager
         self.pipeline_mode = pipeline_mode  # "classic" or "structured"
+        self.validation_mode = validation_mode  # "keyword", "llm_full", "llm_critical", "exec_first", "hybrid"
 
         language = mission_ctx.language if mission_ctx else "en"
         workspace_dir = mission_ctx.workspace_dir if mission_ctx else None
         self.reporter = Reporter(reports_dir, language=language,
                                  workspace_dir=workspace_dir)
         self.planner = TaskPlanner(llm)
+
+        # LLM Judge: semantic validation (Round 11)
+        self.llm_judge = None
+        if validation_mode != "keyword":
+            self.llm_judge = LLMJudge(llm)
 
         # Result verifier: cross-checks claims vs stdout
         self.result_verifier = ResultVerifier()
@@ -123,9 +131,15 @@ class Supervisor:
         if mission_ctx:
             for w in self.workers.values():
                 w.mission_id = mission_ctx.mission_id
-        # Wire result verifier to all workers
-        for w in self.workers.values():
-            w.result_verifier = self.result_verifier
+        # Wire result verifier to all workers (skip for llm_full — judge replaces it)
+        if validation_mode not in ("llm_full", "hybrid"):
+            for w in self.workers.values():
+                w.result_verifier = self.result_verifier
+        # Wire LLM judge to all workers
+        if self.llm_judge and validation_mode in ("llm_full", "llm_critical", "hybrid"):
+            for w in self.workers.values():
+                w.llm_judge = self.llm_judge
+                w.validation_mode = validation_mode
         # Wire execution log to all workers (structured pipeline)
         if self.execution_log:
             for w in self.workers.values():
@@ -195,10 +209,15 @@ class Supervisor:
             "result_verifier": self.result_verifier.to_dict(),
             "goal_tracker": self.goal_tracker.to_dict(),
             "flow_monitor": self.flow_monitor.to_dict(),
-            # Round 10: pipeline mode + execution log
+            # Round 10: pipeline mode (execution_log lives on disk, not in checkpoint)
             "pipeline_mode": self.pipeline_mode,
-            "execution_log": self.execution_log.to_dict() if self.execution_log else None,
+            "has_execution_log": self.execution_log is not None,
+            # Round 11: validation mode
+            "validation_mode": self.validation_mode,
         }
+        # Flush execution log to disk before checkpoint
+        if self.execution_log:
+            self.execution_log.flush()
         self.state.checkpoint("mission", data)
 
         # Also update mission.json
@@ -242,10 +261,24 @@ class Supervisor:
             self.goal_tracker = GoalTracker.from_dict(cp["goal_tracker"], ws_dir)
         if "flow_monitor" in cp:
             self.flow_monitor = FlowMonitor.from_dict(cp["flow_monitor"])
-        # Restore execution log (Round 10)
+        # Restore validation mode (Round 11)
+        self.validation_mode = cp.get("validation_mode", self.validation_mode)
+        if self.validation_mode != "keyword" and not self.llm_judge:
+            self.llm_judge = LLMJudge(self.llm)
+        if self.llm_judge and self.validation_mode in ("llm_full", "llm_critical", "hybrid"):
+            for w in self.workers.values():
+                w.llm_judge = self.llm_judge
+                w.validation_mode = self.validation_mode
+        # Restore execution log (Round 10) — load from disk, not checkpoint
         self.pipeline_mode = cp.get("pipeline_mode", self.pipeline_mode)
-        if cp.get("execution_log") and ws_dir:
-            self.execution_log = ExecutionLog.from_dict(cp["execution_log"], ws_dir)
+        if (cp.get("has_execution_log") or cp.get("execution_log")) and ws_dir:
+            # Prefer loading from disk (execution_log.json) — avoids checkpoint bloat
+            if cp.get("execution_log"):
+                # Legacy: old checkpoint with embedded execution_log
+                self.execution_log = ExecutionLog.from_dict(cp["execution_log"], ws_dir)
+            else:
+                # New: load from workspace/execution_log.json
+                self.execution_log = ExecutionLog(ws_dir)
             for w in self.workers.values():
                 w.execution_log = self.execution_log
 
@@ -265,8 +298,9 @@ class Supervisor:
         self.insight_dag = InsightDAG()
         self.working_memory = ""
         self.result_verifier = ResultVerifier()
-        for w in self.workers.values():
-            w.result_verifier = self.result_verifier
+        if self.validation_mode not in ("llm_full", "hybrid"):
+            for w in self.workers.values():
+                w.result_verifier = self.result_verifier
 
         # Reset execution log for new mission
         if self.pipeline_mode == "structured" and self.mission_ctx:
@@ -461,51 +495,58 @@ class Supervisor:
                 print(f"  [Supervisor] Unknown action '{action_type}', defaulting to explore")
                 self._dispatch_worker("explorer", action.get("task", self.direction))
 
-            # ── Step 4b: Goal completion check ────────────────
-            goal_status = self.goal_tracker.check_completion(
-                self.completed_tasks,
-                knowledge_stats=self.knowledge.stats(),
-                dag=self.insight_dag,
-            )
-            if goal_status["completion_rate"] > 0:
-                completed_n = sum(1 for sg in self.goal_tracker.sub_goals if sg.completed)
-                total_n = len(self.goal_tracker.sub_goals)
-                print(f"  [GoalTracker] {completed_n}/{total_n} sub-goals complete "
-                      f"({goal_status['completion_rate']:.0%})")
-                if goal_status["blocking"]:
-                    print(f"  [GoalTracker] Blocking: {', '.join(goal_status['blocking'][:3])}")
+            # ── Step 4b: Goal/progress check ──────────────────
+            if self.llm_judge and self.validation_mode in ("llm_full", "hybrid"):
+                # LLM Judge Call 2: assess_progress replaces GoalTracker + FlowMonitor
+                self._assess_progress_with_judge()
+            else:
+                # Original keyword-based goal tracking
+                goal_status = self.goal_tracker.check_completion(
+                    self.completed_tasks,
+                    knowledge_stats=self.knowledge.stats(),
+                    dag=self.insight_dag,
+                )
+                if goal_status["completion_rate"] > 0:
+                    completed_n = sum(1 for sg in self.goal_tracker.sub_goals if sg.completed)
+                    total_n = len(self.goal_tracker.sub_goals)
+                    print(f"  [GoalTracker] {completed_n}/{total_n} sub-goals complete "
+                          f"({goal_status['completion_rate']:.0%})")
+                    if goal_status["blocking"]:
+                        print(f"  [GoalTracker] Blocking: {', '.join(goal_status['blocking'][:3])}")
 
-                # Emit events for completed sub-goals
-                for sg in self.goal_tracker.sub_goals:
-                    if sg.completed and sg.evidence:
-                        self.event_bus.emit(EventType.GOAL_SUBGOAL_COMPLETED, {
-                            "type": sg.type, "description": sg.description,
+                    # Emit events for completed sub-goals
+                    for sg in self.goal_tracker.sub_goals:
+                        if sg.completed and sg.evidence:
+                            self.event_bus.emit(EventType.GOAL_SUBGOAL_COMPLETED, {
+                                "type": sg.type, "description": sg.description,
+                            }, source="goal_tracker")
+
+                    if goal_status["all_complete"]:
+                        self.event_bus.emit(EventType.GOAL_ALL_COMPLETE, {
+                            "completion_rate": 1.0,
                         }, source="goal_tracker")
 
-                if goal_status["all_complete"]:
-                    self.event_bus.emit(EventType.GOAL_ALL_COMPLETE, {
-                        "completion_rate": 1.0,
-                    }, source="goal_tracker")
-
             # ── Step 4c: Flow monitor analysis (single call per cycle) ─
-            self._last_advisories = self.flow_monitor.analyze(
-                cycle=self.cycle,
-                tasks=self.completed_tasks,
-                dag=self.insight_dag,
-                failures=self._consecutive_failures,
-            )
-            if self._last_advisories:
-                for adv in self._last_advisories:
-                    print(f"  [FlowMonitor] {adv.severity}: {adv.message}")
-                    self.event_bus.emit(EventType.FLOW_ADVISORY, adv.to_dict(),
-                                        source="flow_monitor")
+            # In llm_full/hybrid mode, flow monitor is replaced by judge assess_progress
+            if self.validation_mode not in ("llm_full", "hybrid"):
+                self._last_advisories = self.flow_monitor.analyze(
+                    cycle=self.cycle,
+                    tasks=self.completed_tasks,
+                    dag=self.insight_dag,
+                    failures=self._consecutive_failures,
+                )
+                if self._last_advisories:
+                    for adv in self._last_advisories:
+                        print(f"  [FlowMonitor] {adv.severity}: {adv.message}")
+                        self.event_bus.emit(EventType.FLOW_ADVISORY, adv.to_dict(),
+                                            source="flow_monitor")
 
-                # Apply critical advisory hard overrides
-                for adv in self._last_advisories:
-                    if adv.severity == "critical" and adv.suggested_action.startswith("skip_worker:"):
-                        worker_to_skip = adv.suggested_action.split(":")[1]
-                        self._consecutive_failures[worker_to_skip] = 0  # Reset so prompt doesn't keep warning
-                        print(f"  [FlowMonitor] Hard override: skipping {worker_to_skip}")
+                    # Apply critical advisory hard overrides
+                    for adv in self._last_advisories:
+                        if adv.severity == "critical" and adv.suggested_action.startswith("skip_worker:"):
+                            worker_to_skip = adv.suggested_action.split(":")[1]
+                            self._consecutive_failures[worker_to_skip] = 0
+                            print(f"  [FlowMonitor] Hard override: skipping {worker_to_skip}")
 
             # ── Step 5: Checkpoint ─────────────────────────────
             self._save_checkpoint()
@@ -535,6 +576,84 @@ class Supervisor:
                 print(f"  [Evolution] Reflection failed: {e}")
 
         return report
+
+    # ── LLM Judge progress assessment (Round 11) ────────────────────
+
+    def _assess_progress_with_judge(self):
+        """Use LLM Judge Call 2 to assess progress (replaces GoalTracker + FlowMonitor)."""
+        try:
+            # Gather workspace files
+            workspace_files = []
+            if self.mission_ctx:
+                ws_dir = self.mission_ctx.workspace_dir
+                try:
+                    for root, dirs, fnames in os.walk(ws_dir):
+                        for fn in fnames:
+                            if '__pycache__' not in root and not fn.startswith('.'):
+                                rel = os.path.relpath(os.path.join(root, fn), ws_dir)
+                                workspace_files.append(rel)
+                except Exception:
+                    pass
+
+            assessment = self.llm_judge.assess_progress(
+                goal=self.goal,
+                completed_tasks=self.completed_tasks,
+                workspace_files=workspace_files,
+                knowledge_summary=self.knowledge.get_summary(depth=1),
+                working_memory=self.working_memory,
+            )
+
+            progress = assessment.get("progress_pct", 0)
+            completed = assessment.get("sub_goals_completed", [])
+            remaining = assessment.get("sub_goals_remaining", [])
+            issues = assessment.get("detected_issues", [])
+
+            print(f"  [LLMJudge] Progress: {progress}%")
+            if completed:
+                print(f"  [LLMJudge] Completed: {', '.join(completed[:3])}")
+            if remaining:
+                print(f"  [LLMJudge] Remaining: {', '.join(remaining[:3])}")
+            if assessment.get("quality_assessment"):
+                print(f"  [LLMJudge] Quality: {assessment['quality_assessment'][:100]}")
+
+            # Convert detected issues to flow-monitor-style advisories for the decision prompt
+            self._last_advisories = []
+            for issue in issues:
+                from supervisor.flow_monitor import Advisory
+                self._last_advisories.append(Advisory(
+                    severity="warning",
+                    category="llm_judge",
+                    message=issue,
+                    suggested_action="replan" if "stagnation" in issue.lower() else "continue",
+                ))
+
+            if self._last_advisories:
+                for adv in self._last_advisories:
+                    print(f"  [LLMJudge] Issue: {adv.message}")
+
+            # Emit progress event
+            if progress >= 100:
+                self.event_bus.emit(EventType.GOAL_ALL_COMPLETE, {
+                    "completion_rate": 1.0,
+                }, source="llm_judge")
+
+            # Store assessment for checkpoint
+            self._last_judge_assessment = assessment
+
+        except Exception as e:
+            print(f"  [LLMJudge] Progress assessment failed ({e}), falling back to keyword")
+            # Fallback to keyword-based checks
+            goal_status = self.goal_tracker.check_completion(
+                self.completed_tasks,
+                knowledge_stats=self.knowledge.stats(),
+                dag=self.insight_dag,
+            )
+            self._last_advisories = self.flow_monitor.analyze(
+                cycle=self.cycle,
+                tasks=self.completed_tasks,
+                dag=self.insight_dag,
+                failures=self._consecutive_failures,
+            )
 
     # ══════════════════════════════════════════════════════════════════
     #  MEMORY DISTILLATION SYSTEM
@@ -1108,12 +1227,14 @@ Respond with ONLY JSON:
     # ── Auto-scoring ────────────────────────────────────────────────
 
     def _auto_score(self):
-        """Run MissionScorer at mission end."""
+        """Run MissionScorer at mission end. Uses LLM Judge when available."""
         if not self.mission_ctx:
             return
         try:
             from core.mission_scorer import MissionScorer
-            scorer = MissionScorer()
+            # Pass LLM judge for semantic scoring in llm_full/exec_first/hybrid modes
+            judge = self.llm_judge if self.validation_mode in ("llm_full", "exec_first", "hybrid") else None
+            scorer = MissionScorer(llm_judge=judge)
             mission_dir = os.path.dirname(self.mission_ctx.workspace_dir)
             score = scorer.score_mission(mission_dir)
             print(f"  [Scorer] Mission grade: {score.grade} ({score.overall:.1f}/10)")

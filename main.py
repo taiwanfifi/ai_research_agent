@@ -79,7 +79,8 @@ def _make_registry() -> ToolRegistry:
 
 
 def build_system(ctx: MissionContext, manager: MissionManager,
-                  pipeline_mode: str = "classic") -> dict:
+                  pipeline_mode: str = "classic",
+                  validation_mode: str = "keyword") -> dict:
     """Initialize all system components scoped to a mission context."""
     _check_system_resources()
 
@@ -117,6 +118,7 @@ def build_system(ctx: MissionContext, manager: MissionManager,
         code_store=code_store,
         evolution_store=evolution_store,
         pipeline_mode=pipeline_mode,
+        validation_mode=validation_mode,
     )
 
     return {
@@ -351,6 +353,12 @@ Examples:
     parser.add_argument("--compare", action="store_true", help="Run A/B pipeline comparison")
     parser.add_argument("--pipeline-mode", choices=["classic", "structured"], default="classic",
                         help="Pipeline mode: classic (v9.2) or structured (execution log)")
+    parser.add_argument("--validation-mode",
+                        choices=["keyword", "llm_full", "llm_critical", "exec_first", "hybrid"],
+                        default="keyword",
+                        help="Validation mode: keyword (legacy), llm_full (all 3 judge calls), "
+                             "llm_critical (judge Call 1 only), exec_first (judge Call 3 only), "
+                             "hybrid (structured JSON + judge fallback)")
     parser.add_argument("--status", "-s", action="store_true", help="Show system status")
     parser.add_argument("--interactive", "-i", action="store_true", help="Interactive mode")
     parser.add_argument("--max-cycles", type=int, default=12, help="Max supervisor cycles (default: 12)")
@@ -459,7 +467,9 @@ Examples:
     print(f"  Created mission: {ctx.mission_id}")
 
     pipeline_mode = getattr(args, 'pipeline_mode', 'classic') or 'classic'
-    system = build_system(ctx, manager, pipeline_mode=pipeline_mode)
+    validation_mode = getattr(args, 'validation_mode', 'keyword') or 'keyword'
+    system = build_system(ctx, manager, pipeline_mode=pipeline_mode,
+                          validation_mode=validation_mode)
 
     if args.report:
         report = system["supervisor"]._generate_report()

@@ -99,6 +99,25 @@ Respond in the same language as the task."""
             context = quality_rules
         return super().run(task, context=context)
 
+    def _validate_with_llm_judge(self, task, full_output, stdout_capture,
+                                  tool_calls_log, messages, elapsed):
+        """Reviewer override: must have run code even in LLM judge mode."""
+        if tool_calls_log:
+            ran_code = any(tc.get("name") == "run_python_code" for tc in tool_calls_log)
+            if not ran_code:
+                return {
+                    "success": False,
+                    "output": full_output,
+                    "messages": messages,
+                    "worker": self.WORKER_NAME,
+                    "elapsed_s": round(elapsed, 1),
+                    "tool_calls": tool_calls_log,
+                    "error": "Reviewer must run code to verify results, not just quote numbers from prior output",
+                }
+        return super()._validate_with_llm_judge(
+            task, full_output, stdout_capture, tool_calls_log, messages, elapsed,
+        )
+
     def _validate_output(self, output: str) -> dict:
         """Reviewer must produce actual results/metrics and must have run code."""
         base = super()._validate_output(output)

@@ -10,8 +10,31 @@ Reuses ResultVerifier._extract_labeled_numbers() for metric parsing.
 
 import json
 import os
+import re
 import time
 from dataclasses import dataclass, field, asdict
+
+
+# Pre-compiled regex patterns (avoid re-compilation per call)
+_METRIC_PATTERN = re.compile(r'([\w\-]+)\s*[:=]\s*(\d+\.?\d*)\s*%?')
+_TABLE_PATTERN = re.compile(r'\|\s*([\w\s\-]+?)\s*\|\s*(\d+\.?\d*)\s*%?\s*\|')
+
+_SKIP_LABELS = {
+    "epoch", "step", "iteration", "batch", "iter", "len", "size",
+    "count", "length", "total", "trainable", "param", "params",
+    "rank", "alpha", "dropout", "seed", "num", "dim", "hidden",
+    "layer", "layers", "index", "idx", "id", "version", "max",
+    "min", "lr", "wd", "warmup", "vocab", "embedding", "head",
+    "heads", "width", "height", "channels",
+    # Hyperparameters (Round 10.1 fix)
+    "r", "n", "k", "d", "b", "t", "m", "x", "e",
+    "learning_rate", "batch_size", "seq_len", "max_len", "max_length",
+    "lora_alpha", "lora_dropout", "lora_r", "lora_rank",
+    "num_epochs", "epochs", "steps", "n_epochs", "gradient",
+    "weight_decay", "momentum", "beta", "beta1", "beta2", "gamma",
+    "temperature", "top_k", "top_p", "beam", "beams",
+    "samples", "batches", "train", "validation", "val", "test",
+}
 
 
 @dataclass
@@ -33,30 +56,27 @@ class ExecutionLog:
     """
     Append-only log of tool executions within a mission.
     Persisted to workspace/execution_log.json.
+
+    Optimized for minimal overhead:
+    - Deferred disk writes (batch at flush/checkpoint, not per-record)
+    - Cached summary generation
+    - Compact JSON serialization
+    - Pre-compiled regex patterns
     """
 
     def __init__(self, workspace_dir: str):
         self.workspace_dir = workspace_dir
         self._entries: list[ExecutionEntry] = []
         self._log_path = os.path.join(workspace_dir, "execution_log.json")
+        self._dirty = False          # Track if entries changed since last save
+        self._summary_cache = None   # Cached summary string
+        self._summary_count = -1     # Entry count when cache was built
         # Load existing if resuming
         self._load()
 
     def record(self, cycle: int, worker: str, tool_name: str,
                result_dict: dict) -> ExecutionEntry:
-        """
-        Record a tool execution result.
-
-        Args:
-            cycle: Current supervisor cycle
-            worker: Worker name (coder, reviewer, etc.)
-            tool_name: Tool that was called
-            result_dict: Raw tool result (parsed JSON or string)
-
-        Returns:
-            The created ExecutionEntry
-        """
-        # Parse result_dict based on tool type
+        """Record a tool execution result (deferred disk write)."""
         if isinstance(result_dict, str):
             try:
                 result_dict = json.loads(result_dict)
@@ -84,9 +104,9 @@ class ExecutionLog:
             stdout = str(result_dict)[:2000]
             success = True
 
-        # Parse metrics from stdout
+        # Lazy metric parsing — only for code runs with stdout
         parsed_metrics = {}
-        if stdout:
+        if stdout and tool_name == "run_python_code":
             parsed_metrics = self._parse_metrics(stdout)
 
         entry = ExecutionEntry(
@@ -102,24 +122,29 @@ class ExecutionLog:
             returncode=returncode,
         )
         self._entries.append(entry)
-        self._save()
+        self._dirty = True
+        self._summary_cache = None  # Invalidate cache
         return entry
+
+    def flush(self):
+        """Write to disk if dirty. Call at end of worker run or checkpoint."""
+        if self._dirty:
+            self._save()
+            self._dirty = False
 
     def get_summary_for_prompt(self, max_chars: int = 3000) -> str:
         """
         THE KEY METHOD: Format execution data for injection into LLM summary.
-
-        Returns a structured text block showing:
-        - All parsed metrics across runs
-        - Files written
-        - Errors encountered
+        Cached — only regenerated when entries change.
         """
         if not self._entries:
             return "(no tool executions recorded)"
 
-        parts = []
+        # Return cached if unchanged
+        if self._summary_cache is not None and self._summary_count == len(self._entries):
+            return self._summary_cache
 
-        # Collect all metrics across runs
+        parts = []
         all_metrics: dict[str, list] = {}
         all_files: list[str] = []
         errors: list[str] = []
@@ -137,7 +162,6 @@ class ExecutionLog:
             if e.files_written:
                 all_files.extend(e.files_written)
 
-        # Format metrics section
         if all_metrics:
             parts.append("METRICS (from code execution stdout):")
             for metric_name, values in all_metrics.items():
@@ -145,23 +169,19 @@ class ExecutionLog:
                     v = values[0]
                     parts.append(f"  {metric_name}: {v['value']}")
                 else:
-                    # Show progression
                     val_strs = [f"{v['value']} (cycle {v['cycle']})" for v in values]
                     parts.append(f"  {metric_name}: {' → '.join(val_strs)}")
 
-        # Format files section
-        unique_files = list(dict.fromkeys(all_files))  # dedupe preserving order
+        unique_files = list(dict.fromkeys(all_files))
         if unique_files:
             parts.append(f"\nFILES WRITTEN ({len(unique_files)}):")
             for f in unique_files:
                 parts.append(f"  - {f}")
 
-        # Format execution summary
         success_count = sum(1 for e in self._entries
                            if e.tool_name == "run_python_code" and e.success)
         parts.append(f"\nEXECUTION SUMMARY: {success_count}/{run_count} code runs succeeded")
 
-        # Format recent errors
         if errors:
             parts.append(f"\nERRORS ({len(errors)}):")
             for err in errors[-3:]:
@@ -170,6 +190,10 @@ class ExecutionLog:
         result = "\n".join(parts)
         if len(result) > max_chars:
             result = result[:max_chars] + "\n...(truncated)"
+
+        # Cache
+        self._summary_cache = result
+        self._summary_count = len(self._entries)
         return result
 
     def get_latest_metrics(self, n: int = 5) -> list[dict]:
@@ -199,44 +223,31 @@ class ExecutionLog:
         log.workspace_dir = workspace_dir
         log._log_path = os.path.join(workspace_dir, "execution_log.json")
         log._entries = []
+        log._dirty = False
+        log._summary_cache = None
+        log._summary_count = -1
         for ed in d.get("entries", []):
             log._entries.append(ExecutionEntry(**ed))
         return log
 
-    # ── Metric parsing (reuses ResultVerifier pattern) ────────────
+    # ── Metric parsing (pre-compiled regex) ────────────────────
 
     @staticmethod
     def _parse_metrics(stdout: str) -> dict:
-        """
-        Extract labeled numbers from stdout.
-        Reuses the same pattern as ResultVerifier._extract_labeled_numbers().
-        """
-        import re
-
+        """Extract labeled numbers from stdout."""
         results = {}
-        _SKIP_LABELS = {
-            "epoch", "step", "iteration", "batch", "iter", "len", "size",
-            "count", "length", "total", "trainable", "param", "params",
-            "rank", "alpha", "dropout", "seed", "num", "dim", "hidden",
-            "layer", "layers", "index", "idx", "id", "version", "max",
-            "min", "lr", "wd", "warmup", "vocab", "embedding", "head",
-            "heads", "width", "height", "channels",
-        }
 
-        # Pattern: "label: value" or "label = value"
-        for match in re.finditer(r'([\w\-]+)\s*[:=]\s*(\d+\.?\d*)\s*%?', stdout):
+        for match in _METRIC_PATTERN.finditer(stdout):
             label = match.group(1).strip()
-            if label.lower() in _SKIP_LABELS:
+            if label.lower() in _SKIP_LABELS or len(label) <= 1:
                 continue
             try:
                 value = float(match.group(2))
-                # Use the last occurrence of each label (most recent result)
                 results[label.lower()] = value
             except ValueError:
                 continue
 
-        # Pattern: table rows "| label | value |"
-        for match in re.finditer(r'\|\s*([\w\s\-]+?)\s*\|\s*(\d+\.?\d*)\s*%?\s*\|', stdout):
+        for match in _TABLE_PATTERN.finditer(stdout):
             label = match.group(1).strip()
             if not label or label.replace(" ", "").replace("-", "").isdigit():
                 continue
@@ -248,14 +259,14 @@ class ExecutionLog:
 
         return results
 
-    # ── Persistence ───────────────────────────────────────────────
+    # ── Persistence ───────────────────────────────────────────
 
     def _save(self):
-        """Persist to disk."""
+        """Persist to disk (compact JSON, no indent)."""
         try:
             os.makedirs(os.path.dirname(self._log_path), exist_ok=True)
             with open(self._log_path, "w", encoding="utf-8") as f:
-                json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
+                json.dump(self.to_dict(), f, ensure_ascii=False, separators=(",", ":"))
         except Exception:
             pass
 
