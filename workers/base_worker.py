@@ -8,7 +8,7 @@ and publishes completion events.
 
 import json
 import time
-from core.llm import MiniMaxClient
+from core.llm import MiniMaxClient, strip_think
 from core.tool_registry import ToolRegistry
 from core.event_bus import EventBus, EventType
 
@@ -33,7 +33,90 @@ class BaseWorker:
         self.execution_log = None    # Set by supervisor (structured pipeline)
         self.llm_judge = None        # Set by supervisor (Round 11)
         self.validation_mode = "keyword"  # Set by supervisor (Round 11)
+        self.enable_monologue = False     # Set by supervisor (inner monologue)
         self._current_cycle: int = 0  # Set by supervisor before dispatch
+        self._workspace_dir: str = ""    # Set by supervisor before dispatch
+
+    def _inner_monologue(self, task: str, context: str = "") -> dict:
+        """
+        Inner monologue: reflect on a task before executing it.
+        Returns {"action": "proceed"|"modify"|"pushback", "reasoning": str, "modified_task": str}
+        """
+        if not self.enable_monologue:
+            return {"action": "proceed", "reasoning": "", "modified_task": task}
+
+        # Gather workspace state for context
+        workspace_info = ""
+        if self._workspace_dir:
+            import os, glob
+            try:
+                files = [os.path.basename(f) for f in glob.glob(os.path.join(self._workspace_dir, '*'))
+                         if '__pycache__' not in f and not os.path.basename(f).startswith('.')]
+                workspace_info = f"\nWorkspace files: {', '.join(files[:15]) if files else '(empty)'}"
+            except Exception:
+                pass
+
+        prompt = f"""You are the inner voice of a {self.WORKER_NAME} agent. Before executing a task, you must reflect.
+
+## Task assigned to you
+{task}
+
+## Context from supervisor
+{context if context else '(none)'}
+{workspace_info}
+
+## Your reflection process
+Think about:
+1. Is this task clearly defined? What information am I missing?
+2. Is this the right approach given what I know?
+3. Are there risks, impossibilities, or better alternatives?
+4. Given my capabilities as a {self.WORKER_NAME}, can I actually deliver this?
+
+## Your response (MUST be valid JSON)
+Return ONLY one of:
+
+If task is fine:
+{{"action": "proceed", "reasoning": "Brief note on why this is sound"}}
+
+If task needs adjustment:
+{{"action": "modify", "reasoning": "What's wrong and why", "modified_task": "The improved task description"}}
+
+If task should not be done:
+{{"action": "pushback", "reasoning": "Why this task is misguided and what should be done instead"}}"""
+
+        try:
+            response = self.llm.chat([
+                {"role": "system", "content": "You reflect honestly. Output ONLY valid JSON."},
+                {"role": "user", "content": prompt},
+            ])
+
+            # Extract text content from API response
+            raw = response["choices"][0]["message"]["content"]
+            text = strip_think(raw).strip()
+            # Handle markdown code blocks
+            if "```" in text:
+                import re
+                match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+                if match:
+                    text = match.group(1)
+
+            result = json.loads(text)
+            action = result.get("action", "proceed")
+            if action not in ("proceed", "modify", "pushback"):
+                action = "proceed"
+
+            print(f"  [{self.WORKER_NAME}] Inner monologue: {action}")
+            if action != "proceed":
+                print(f"  [{self.WORKER_NAME}] Reasoning: {result.get('reasoning', '')[:150]}")
+
+            return {
+                "action": action,
+                "reasoning": result.get("reasoning", ""),
+                "modified_task": result.get("modified_task", task),
+            }
+        except Exception as e:
+            print(f"  [{self.WORKER_NAME}] Inner monologue failed ({e}), proceeding")
+            return {"action": "proceed", "reasoning": "", "modified_task": task}
 
     def _get_tool_executor(self):
         """Return the tool executor callable. Override in subclasses to wrap."""
@@ -54,6 +137,23 @@ class BaseWorker:
             self.event_bus.emit(EventType.WORKER_STARTED, {
                 "worker": self.WORKER_NAME, "task": task,
             }, source=self.WORKER_NAME)
+
+        # ── Inner Monologue: reflect before acting ──────────────
+        monologue = self._inner_monologue(task, context)
+        if monologue["action"] == "pushback":
+            return {
+                "success": False,
+                "output": "",
+                "messages": [],
+                "worker": self.WORKER_NAME,
+                "elapsed_s": 0,
+                "error": f"PUSHBACK: {monologue['reasoning']}",
+                "pushback": True,
+                "pushback_reasoning": monologue["reasoning"],
+            }
+        if monologue["action"] == "modify":
+            task = monologue["modified_task"]
+            print(f"  [{self.WORKER_NAME}] Task modified by inner monologue")
 
         full_prompt = self.SYSTEM_PROMPT
         if context:

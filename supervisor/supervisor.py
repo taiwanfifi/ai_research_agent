@@ -140,6 +140,10 @@ class Supervisor:
             for w in self.workers.values():
                 w.llm_judge = self.llm_judge
                 w.validation_mode = validation_mode
+        # Enable inner monologue when using LLM judge (workers can reflect + pushback)
+        if self.llm_judge:
+            for w in self.workers.values():
+                w.enable_monologue = True
         # Wire execution log to all workers (structured pipeline)
         if self.execution_log:
             for w in self.workers.values():
@@ -1033,8 +1037,8 @@ Respond with ONLY JSON:
         # Set cycle on worker for result verification
         worker._current_cycle = self.cycle
 
-        # Give coder access to workspace_dir for file existence checks
-        if worker_name == "coder" and self.mission_ctx:
+        # Give all workers access to workspace_dir (for inner monologue context + file checks)
+        if self.mission_ctx:
             worker._workspace_dir = self.mission_ctx.workspace_dir
 
         self.event_bus.emit(EventType.TASK_ASSIGNED, {
@@ -1074,6 +1078,23 @@ Respond with ONLY JSON:
         context = "\n\n".join(context_parts)
 
         result = worker.run(task_desc, context=context)
+
+        # ── Handle pushback: worker refused the task ──────────
+        if result.get("pushback"):
+            reasoning = result.get("pushback_reasoning", "")
+            print(f"  [Supervisor] ⚡ {worker_name} pushed back: {reasoning[:150]}")
+            # Store as insight — pushbacks are valuable signal
+            self._add_insight(
+                content=f"PUSHBACK from {worker_name}: {reasoning}",
+                worker=worker_name, success=False,
+            )
+            result_entry = {
+                "worker": worker_name, "task": task_desc,
+                "success": False, "pushback": True,
+                "pushback_reasoning": reasoning,
+            }
+            self.completed_tasks.append(result_entry)
+            return
 
         # Transfer tool call log for downstream checks
         if hasattr(worker, '_last_tool_calls'):
