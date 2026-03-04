@@ -78,7 +78,8 @@ def _make_registry() -> ToolRegistry:
     return registry
 
 
-def build_system(ctx: MissionContext, manager: MissionManager) -> dict:
+def build_system(ctx: MissionContext, manager: MissionManager,
+                  pipeline_mode: str = "classic") -> dict:
     """Initialize all system components scoped to a mission context."""
     _check_system_resources()
 
@@ -115,6 +116,7 @@ def build_system(ctx: MissionContext, manager: MissionManager) -> dict:
         mission_ctx=ctx, mission_manager=manager,
         code_store=code_store,
         evolution_store=evolution_store,
+        pipeline_mode=pipeline_mode,
     )
 
     return {
@@ -345,6 +347,10 @@ Examples:
                         help="New direction when resuming")
     parser.add_argument("--list-missions", action="store_true", help="List all missions")
     parser.add_argument("--report", action="store_true", help="Generate report for a mission")
+    parser.add_argument("--score", action="store_true", help="Score a mission (use with --resume)")
+    parser.add_argument("--compare", action="store_true", help="Run A/B pipeline comparison")
+    parser.add_argument("--pipeline-mode", choices=["classic", "structured"], default="classic",
+                        help="Pipeline mode: classic (v9.2) or structured (execution log)")
     parser.add_argument("--status", "-s", action="store_true", help="Show system status")
     parser.add_argument("--interactive", "-i", action="store_true", help="Interactive mode")
     parser.add_argument("--max-cycles", type=int, default=12, help="Max supervisor cycles (default: 12)")
@@ -364,6 +370,17 @@ Examples:
     # ── Interactive mode ──────────────────────────────────────────
     if args.interactive:
         interactive_mode(manager)
+        return
+
+    # ── A/B Comparison ───────────────────────────────────────────
+    if args.compare:
+        from tools.pipeline_compare import run_comparison
+        goal = " ".join(args.goal) if args.goal else None
+        if not goal:
+            print("  Error: --compare requires a goal.")
+            print("  Usage: python3 main.py --compare 'research PEFT methods' --max-cycles 8")
+            sys.exit(1)
+        run_comparison(goal, max_cycles=args.max_cycles, language=language)
         return
 
     # ── Resume ────────────────────────────────────────────────────
@@ -390,6 +407,22 @@ Examples:
             print(f"  Direction: {ctx.direction}")
 
         manager.save_mission(ctx)
+
+        # Score-only mode (no need to build full system)
+        if args.score:
+            from core.mission_scorer import MissionScorer
+            scorer = MissionScorer()
+            mission_dir = os.path.dirname(ctx.workspace_dir)
+            score = scorer.score_mission(mission_dir)
+            print(f"\n  Mission: {ctx.mission_id}")
+            print(f"  Grade: {score.grade} ({score.overall:.1f}/10)")
+            print(f"\n  {'Dimension':<15} {'Score':<8} {'Weight':<8} Evidence")
+            print(f"  {'-'*70}")
+            for d in score.dimensions:
+                ev = "; ".join(d.evidence[:2])
+                print(f"  {d.name:<15} {d.score:<8.1f} {d.weight:<8} {ev}")
+            return
+
         system = build_system(ctx, manager)
 
         if args.report:
@@ -425,7 +458,8 @@ Examples:
     ctx = manager.create_mission(goal, language=language, cross_knowledge=args.cross)
     print(f"  Created mission: {ctx.mission_id}")
 
-    system = build_system(ctx, manager)
+    pipeline_mode = getattr(args, 'pipeline_mode', 'classic') or 'classic'
+    system = build_system(ctx, manager, pipeline_mode=pipeline_mode)
 
     if args.report:
         report = system["supervisor"]._generate_report()

@@ -30,6 +30,7 @@ class BaseWorker:
         self.max_turns = 10
         self.mission_id: str = ""
         self.result_verifier = None  # Set by supervisor
+        self.execution_log = None    # Set by supervisor (structured pipeline)
         self._current_cycle: int = 0  # Set by supervisor before dispatch
 
     def _get_tool_executor(self):
@@ -61,19 +62,43 @@ class BaseWorker:
 
         output_parts = []
         tool_results_parts = []  # Capture tool results separately
+        tool_calls_log = []  # Track actual tool calls made
 
         def on_response(turn, content, latency):
             output_parts.append(content)
             print(f"  [{self.WORKER_NAME}] Turn {turn} ({latency:.0f}ms): {content[:100]}...")
 
         def on_tool_call(name, args):
+            tool_calls_log.append({"name": name, "args": args})
             print(f"  [{self.WORKER_NAME}] Tool: {name}")
 
         def on_tool_result(name, result):
+            # Record to execution log (structured pipeline)
+            if self.execution_log and name in ("run_python_code", "write_file"):
+                try:
+                    parsed = json.loads(result) if isinstance(result, str) else result
+                    self.execution_log.record(
+                        cycle=self._current_cycle,
+                        worker=self.WORKER_NAME,
+                        tool_name=name,
+                        result_dict=parsed if isinstance(parsed, dict) else {"stdout": str(parsed)},
+                    )
+                except Exception:
+                    pass
+
             # Capture important tool results (code execution output, search results)
             if result and len(result.strip()) > 20:
                 # Only keep first 1000 chars of each tool result to avoid bloat
                 tool_results_parts.append(f"[{name}] {result[:1000]}")
+
+            # Capture write_file results for verification
+            if name == "write_file" and result and tool_calls_log:
+                try:
+                    parsed = json.loads(result) if isinstance(result, str) else result
+                    if isinstance(parsed, dict) and parsed.get("success"):
+                        tool_calls_log[-1]["file_written"] = parsed.get("path", "")
+                except (json.JSONDecodeError, AttributeError):
+                    pass
 
             # Capture stdout for result verification
             if name == "run_python_code" and self.result_verifier and result:
@@ -89,6 +114,26 @@ class BaseWorker:
                 except (json.JSONDecodeError, AttributeError):
                     pass
 
+            # Run sanity checks on raw stdout
+            if name == "run_python_code" and result:
+                try:
+                    parsed = json.loads(result) if isinstance(result, str) else result
+                    stdout = parsed.get("stdout", "") if isinstance(parsed, dict) else ""
+                    if stdout:
+                        from core.sanity_rules import SanityChecker
+                        sc = SanityChecker()
+                        check = sc.check_output(stdout)
+                        if check.violations:
+                            for v in check.violations:
+                                print(f"  [{self.WORKER_NAME}] Stdout sanity {v.severity}: {v.message}")
+                except (json.JSONDecodeError, AttributeError, Exception):
+                    pass
+
+        # Prepare execution log summary for structured summary forcing
+        exec_log_summary = None
+        if self.execution_log:
+            exec_log_summary = self.execution_log.get_summary_for_prompt()
+
         t0 = time.perf_counter()
         try:
             messages = self.llm.agent_loop(
@@ -100,6 +145,7 @@ class BaseWorker:
                 on_response=on_response,
                 on_tool_call=on_tool_call,
                 on_tool_result=on_tool_result,
+                execution_log_summary=exec_log_summary,
             )
             elapsed = time.perf_counter() - t0
 
@@ -108,6 +154,9 @@ class BaseWorker:
             # If LLM output is thin but tool results are rich, append them
             if tool_results_parts and len(full_output) < 500:
                 full_output += "\n\n## Tool Execution Results\n" + "\n\n".join(tool_results_parts[-5:])
+
+            # Store tool calls log on self BEFORE validation so subclass validators can use it
+            self._last_tool_calls = tool_calls_log
 
             # Validate output quality before declaring success
             validation = self._validate_output(full_output)
@@ -118,32 +167,43 @@ class BaseWorker:
                 "messages": messages,
                 "worker": self.WORKER_NAME,
                 "elapsed_s": round(elapsed, 1),
+                "tool_calls": tool_calls_log,
             }
             if not validation["valid"]:
                 result["error"] = f"Output validation failed: {validation['reason']}"
                 print(f"  [{self.WORKER_NAME}] VALIDATION FAILED: {validation['reason']}")
 
-            # Run result verification (check claims vs stdout)
+            # Run result verification (check claims vs stdout) — ENFORCING
             if validation["valid"] and self.result_verifier:
                 try:
                     verification = self.result_verifier.verify_output(full_output)
                     result["verification_score"] = verification.score
                     if verification.contradicted:
+                        # ENFORCE: contradicted claims = fabrication detected
+                        contradiction_msgs = [c.raw_text for c in verification.contradicted]
+                        result["success"] = False
+                        result["error"] = f"Fabrication detected — claims contradict stdout: {'; '.join(contradiction_msgs)}"
                         for c in verification.contradicted:
-                            print(f"  [{self.WORKER_NAME}] CONTRADICTED: {c.raw_text}")
-                    if verification.warnings:
+                            print(f"  [{self.WORKER_NAME}] FABRICATION BLOCKED: {c.raw_text}")
+                    elif verification.score == 0.0 and len(verification.claims) > 2:
+                        # Many claims but zero verified — suspicious
+                        result["verification_warning"] = "No claims could be verified against stdout"
                         for w in verification.warnings:
                             print(f"  [{self.WORKER_NAME}] Verify warning: {w}")
+                    else:
+                        if verification.warnings:
+                            for w in verification.warnings:
+                                print(f"  [{self.WORKER_NAME}] Verify warning: {w}")
                 except Exception:
-                    pass  # Best-effort verification
+                    pass
 
             # Auto-save to knowledge tree (only if valid)
-            if validation["valid"]:
+            if result["success"]:
                 self._save_to_knowledge(task, full_output)
 
             if self.event_bus:
                 self.event_bus.emit(EventType.WORKER_FINISHED, {
-                    "worker": self.WORKER_NAME, "task": task, "success": True,
+                    "worker": self.WORKER_NAME, "task": task, "success": result["success"],
                 }, source=self.WORKER_NAME)
 
         except Exception as e:

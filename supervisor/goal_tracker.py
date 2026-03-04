@@ -219,22 +219,16 @@ Rules:
         if "coder" not in workers:
             return False, ""
 
-        pattern = sg.check_params.get("filename_pattern", "*.py")
-        # Check workspace for matching files
-        try:
-            import glob
-            matches = glob.glob(os.path.join(self.workspace_dir, pattern))
-            # Filter out temp files
-            matches = [m for m in matches if not os.path.basename(m).startswith("tmp")]
-            if matches:
-                names = [os.path.basename(m) for m in matches]
-                return True, f"Files found: {', '.join(names[:5])}"
-        except Exception:
-            pass
-
-        # Fallback: check task output for file save indicators
-        if any(m in all_output.lower() for m in ["write_file", "saved", "written to"]):
-            return True, "File save detected in output"
+        # ONLY check actual filesystem, never fall back to text patterns
+        ws_dir = sg.check_params.get("workspace_dir", "") or self.workspace_dir
+        if ws_dir:
+            import glob as glob_mod
+            patterns = ["*.py", "*.ipynb", "*.json", "*.csv", "*.pkl", "*.pt", "*.pth"]
+            for pat in patterns:
+                matches = glob_mod.glob(os.path.join(ws_dir, pat))
+                real = [m for m in matches if not os.path.basename(m).startswith('tmp_')]
+                if real:
+                    return True, f"Found: {', '.join(os.path.basename(m) for m in real[:3])}"
         return False, ""
 
     def _check_code_runs(self, sg, tasks, all_output, workers, kstats):
@@ -251,7 +245,24 @@ Rules:
     def _check_metric_achieved(self, sg, tasks, all_output, workers, kstats):
         metric_name = sg.check_params.get("metric_name", "")
 
-        # Look for numerical results in output
+        # Strategy 1: Check workspace for results JSON files
+        ws_dir = sg.check_params.get("workspace_dir", "") or self.workspace_dir
+        if ws_dir:
+            import json as json_mod
+            for fname in ["experiment_results.json", "results.json", "metrics.json"]:
+                fpath = os.path.join(ws_dir, fname)
+                if os.path.exists(fpath):
+                    try:
+                        with open(fpath) as f:
+                            data = json_mod.load(f)
+                        if isinstance(data, dict):
+                            for key, val in data.items():
+                                if isinstance(val, (int, float)):
+                                    return True, f"Found {key}={val} in {fname}"
+                    except Exception:
+                        pass
+
+        # Strategy 2: Regex patterns in stdout/output (original + expanded)
         metric_pattern = r'(?:accuracy|loss|perplexity|ppl|f1|precision|recall|bleu|rouge|auc|mse|rmse)\s*[:=]\s*\d+\.?\d*'
         if metric_name:
             metric_pattern = rf'{re.escape(metric_name)}\s*[:=]\s*\d+\.?\d*'
@@ -259,6 +270,12 @@ Rules:
         matches = re.findall(metric_pattern, all_output, re.IGNORECASE)
         if matches:
             return True, f"Metrics found: {', '.join(matches[:3])}"
+
+        # Also try JSON key format: "metric_name": value
+        json_metric_pattern = r'"(?:accuracy|loss|perplexity|f1|precision|recall|bleu|rouge|auc|mse|rmse)"\s*:\s*\d+\.?\d*'
+        json_matches = re.findall(json_metric_pattern, all_output, re.IGNORECASE)
+        if json_matches:
+            return True, f"Metrics found (JSON): {', '.join(json_matches[:3])}"
 
         # Also check for table results
         table_pattern = r'\|\s*[\w\s]+\s*\|\s*\d+\.?\d*'
@@ -270,18 +287,15 @@ Rules:
 
     def _check_visualization_generated(self, sg, tasks, all_output, workers, kstats):
         pattern = sg.check_params.get("filename_pattern", "*.png")
+        # ONLY check actual filesystem for figure files
         try:
-            import glob
-            matches = glob.glob(os.path.join(self.workspace_dir, pattern))
+            import glob as glob_mod
+            matches = glob_mod.glob(os.path.join(self.workspace_dir, pattern))
             if matches:
                 names = [os.path.basename(m) for m in matches]
                 return True, f"Figures: {', '.join(names[:5])}"
         except Exception:
             pass
-
-        # Fallback: check output for savefig mentions
-        if "savefig" in all_output or ".png" in all_output:
-            return True, "Figure generation detected in output"
         return False, ""
 
     def _check_comparison_done(self, sg, tasks, all_output, workers, kstats):

@@ -222,8 +222,24 @@ class ResultVerifier:
                 label = match.group(1).strip()
                 try:
                     value = float(match.group(2))
-                    # Skip epoch/step/iteration numbers
-                    if label.lower() in ("epoch", "step", "iteration", "batch", "iter", "len", "size", "count"):
+                    # Skip non-metric labels (hyperparams, indices, etc.)
+                    _SKIP_LABELS = {
+                        "epoch", "step", "iteration", "batch", "iter", "len", "size", "count",
+                        "length", "total", "trainable", "param", "params", "rank", "alpha",
+                        "dropout", "seed", "num", "dim", "hidden", "layer", "layers",
+                        "index", "idx", "id", "version", "max", "min", "lr", "wd", "warmup",
+                        "vocab", "embedding", "head", "heads", "width", "height", "channels",
+                        "the", "a", "an", "and", "with", "of", "in", "to", "for",
+                        # Hyperparameters commonly reported (Round 10 fix)
+                        "r", "n", "k", "d", "b", "t", "m", "x", "e",
+                        "learning_rate", "batch_size", "seq_len", "max_len", "max_length",
+                        "lora_alpha", "lora_dropout", "lora_r", "lora_rank",
+                        "num_epochs", "epochs", "steps", "n_epochs", "gradient",
+                        "weight_decay", "momentum", "beta", "beta1", "beta2", "gamma",
+                        "temperature", "top_k", "top_p", "beam", "beams",
+                        "samples", "batches", "train", "validation", "val", "test",
+                    }
+                    if label.lower() in _SKIP_LABELS or len(label) <= 1:
                         continue
                     results.append((label, value))
                 except ValueError:
@@ -275,7 +291,23 @@ class ResultVerifier:
                     continue
 
                 label = label.strip()
-                if label.lower() in ("epoch", "step", "iteration", "batch", "iter", "the", "a", "an", "and", "with"):
+                _SKIP_CLAIM_LABELS = {
+                    "epoch", "step", "iteration", "batch", "iter", "len", "size", "count",
+                    "length", "total", "trainable", "param", "params", "rank", "alpha",
+                    "dropout", "seed", "num", "dim", "hidden", "layer", "layers",
+                    "index", "idx", "id", "version", "max", "min", "lr", "wd", "warmup",
+                    "vocab", "embedding", "head", "heads", "width", "height", "channels",
+                    "the", "a", "an", "and", "with", "of", "in", "to", "for",
+                    # Hyperparameters commonly reported (Round 10 fix)
+                    "r", "n", "k", "d", "b", "t", "m", "x", "e",
+                    "learning_rate", "batch_size", "seq_len", "max_len", "max_length",
+                    "lora_alpha", "lora_dropout", "lora_r", "lora_rank",
+                    "num_epochs", "epochs", "steps", "n_epochs", "gradient",
+                    "weight_decay", "momentum", "beta", "beta1", "beta2", "gamma",
+                    "temperature", "top_k", "top_p", "beam", "beams",
+                    "samples", "batches", "train", "validation", "val", "test",
+                }
+                if label.lower() in _SKIP_CLAIM_LABELS or len(label) <= 1:
                     continue
 
                 key = (label.lower(), round(value, 4))
@@ -313,6 +345,10 @@ class ResultVerifier:
         """Check if two values are close enough (within 1% or 0.01 absolute)."""
         if v1 == v2:
             return True
+        # For large values (>10), use absolute tolerance of 0.5
+        if abs(v1) > 10 or abs(v2) > 10:
+            if abs(v1 - v2) <= 0.5:
+                return True
         if abs(v1 - v2) <= tolerance:
             return True
         if v2 != 0 and abs(v1 - v2) / abs(v2) <= tolerance:

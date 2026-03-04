@@ -100,7 +100,7 @@ Respond in the same language as the task."""
         return super().run(task, context=context)
 
     def _validate_output(self, output: str) -> dict:
-        """Reviewer must produce actual results/metrics, not just narration."""
+        """Reviewer must produce actual results/metrics and must have run code."""
         base = super()._validate_output(output)
         if not base["valid"]:
             return base
@@ -111,13 +111,19 @@ Respond in the same language as the task."""
         has_results = any(marker in output for marker in [
             "Results", "results", "|", "accuracy", "loss", "perplexity",
             "precision", "recall", "F1", "score", "metric",
-            "Table", "table", "Experimental", "Setup",
         ])
         if not has_numbers or not has_results:
             return {"valid": False,
                     "reason": "No quantitative results found in reviewer output — must include actual metrics"}
 
-        # Run sanity checks on the output
+        # Reviewer must have actually executed code, not just quoted numbers
+        if hasattr(self, '_last_tool_calls'):
+            ran_code = any(tc.get("name") == "run_python_code" for tc in self._last_tool_calls)
+            if not ran_code:
+                return {"valid": False,
+                        "reason": "Reviewer must run code to verify results, not just quote numbers from prior output"}
+
+        # Run sanity checks on the output — errors block
         try:
             from core.sanity_rules import SanityChecker
             checker = SanityChecker()

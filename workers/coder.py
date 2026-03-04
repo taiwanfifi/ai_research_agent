@@ -70,6 +70,11 @@ class CoderWorker(BaseWorker):
 - If MPS has compatibility issues with an op, fallback to CPU and note it
 - For large models, check memory before loading (`torch.cuda.mem_get_info()` or estimate)
 
+## Structured Output
+When printing results, use the format: `metric_name: value`
+Examples: `accuracy: 85.3`, `loss: 0.42`, `training_time: 12.5s`, `f1_score: 0.91`
+This ensures metrics are automatically captured by the execution log.
+
 ## Code Quality
 - Write modular, testable code with clear function boundaries
 - Use type annotations for function signatures
@@ -166,28 +171,44 @@ Respond in the same language as the task."""
         ]
 
     def _validate_output(self, output: str) -> dict:
-        """Coder must have saved files and produced results."""
+        """Coder must have real files in workspace, not just text patterns."""
         base = super()._validate_output(output)
         if not base["valid"]:
             return base
 
-        # Check that write_file was used (mandatory per system prompt)
-        has_file_save = any(marker in output.lower() for marker in [
-            "write_file", "saved", "written to", "file created",
-            "files created", "## final summary", "### files",
-        ])
-        if not has_file_save:
-            return {"valid": False, "reason": "No files saved to workspace (write_file not used)"}
+        # Check actual workspace for files (not text patterns)
+        has_real_files = False
+        if hasattr(self, '_workspace_dir') and self._workspace_dir:
+            import os, glob
+            ws_files = glob.glob(os.path.join(self._workspace_dir, '*'))
+            # Filter out __pycache__, .code_store, tmp_ files
+            real_files = [f for f in ws_files
+                          if not os.path.basename(f).startswith(('tmp_', '.'))
+                          and '__pycache__' not in f
+                          and '.code_store' not in f]
+            has_real_files = len(real_files) > 0
 
-        # Run sanity checks on the output
+        # Fallback: check tool_calls_log if available (set during run())
+        if not has_real_files and hasattr(self, '_last_tool_calls'):
+            has_real_files = any(
+                tc.get("name") == "write_file" and tc.get("file_written")
+                for tc in self._last_tool_calls
+            )
+
+        if not has_real_files:
+            return {"valid": False, "reason": "No files found in workspace — code was not saved via write_file"}
+
+        # Run sanity checks on the output — errors now block
         try:
             from core.sanity_rules import SanityChecker
             checker = SanityChecker()
             sanity_result = checker.check_output(output, task_description="")
-            # For coder, log warnings but don't block on errors
-            # (coder outputs are code + results, not final evaluation)
+            if sanity_result.errors:
+                reasons = "; ".join(v.message for v in sanity_result.errors)
+                return {"valid": False, "reason": f"Sanity check failed: {reasons}"}
             for v in sanity_result.violations:
-                print(f"  [coder] Sanity {v.severity}: {v.message}")
+                if v.severity == "warning":
+                    print(f"  [coder] Sanity warning: {v.message}")
         except Exception:
             pass  # Best-effort sanity check
 

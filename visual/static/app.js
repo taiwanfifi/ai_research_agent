@@ -167,6 +167,8 @@ const State = {
     reports: null,
     timeline: null,
     workspaceFiles: null,
+    missionScore: null,
+    comparisons: null,
 
     activeTab: 'timeline',
     autoRefreshInterval: null,
@@ -195,7 +197,9 @@ const API = {
     },
 
     missions()                  { return this.fetchJson('/api/missions'); },
+    comparisons()               { return this.fetchJson('/api/comparisons'); },
     missionDetail(id)           { return this.fetchJson(`/api/mission/${id}`); },
+    missionScore(id)            { return this.fetchJson(`/api/mission/${id}/score`); },
     insights(id)                { return this.fetchJson(`/api/mission/${id}/insights`); },
     code(id)                    { return this.fetchJson(`/api/mission/${id}/code`); },
     knowledge(id)               { return this.fetchJson(`/api/mission/${id}/knowledge`); },
@@ -234,17 +238,25 @@ const UI = {
             return;
         }
 
-        container.innerHTML = missions.map(m => `
+        container.innerHTML = missions.map(m => {
+            const gradeBadge = m.grade
+                ? `<span class="grade-badge grade-${m.grade}">${m.grade}</span>`
+                : '';
+            return `
             <div class="mission-card ${State.selectedMission === m.id ? 'selected' : ''}"
                  data-id="${Utils.escapeHtml(m.id)}">
-                <div class="mc-title">${Utils.escapeHtml(m.goal || m.slug || m.id)}</div>
+                <div class="mc-title" style="display:flex;align-items:center;gap:6px">
+                    ${gradeBadge}
+                    <span>${Utils.escapeHtml(m.goal || m.slug || m.id)}</span>
+                </div>
                 <div class="mc-meta">
                     <span class="status-badge ${m.status || ''}">${Utils.escapeHtml(m.status || 'unknown')}</span>
                     <span>${m.cycle || 0}/${m.max_cycles || 0} cycles</span>
                     <span>${m.task_count || 0} tasks</span>
+                    ${m.score != null ? `<span>${m.score.toFixed(1)}/10</span>` : ''}
                 </div>
-            </div>
-        `).join('');
+            </div>`;
+        }).join('');
     },
 
     // ---- Top Bar ----
@@ -442,6 +454,88 @@ const UI = {
         if (!html) {
             html = '<div class="empty-state">No code or workspace files</div>';
         }
+        container.innerHTML = html;
+    },
+
+    // ---- Score ----
+    renderScore() {
+        const container = document.getElementById('score-content');
+        const score = State.missionScore;
+        if (!score || !score.dimensions) {
+            container.innerHTML = '<div class="empty-state">No score available — mission may not have finished yet</div>';
+            return;
+        }
+
+        const dimColors = {
+            literature: '#2563EB',
+            code: '#059669',
+            results: '#7C3AED',
+            verification: '#DC2626',
+            artifacts: '#D97706',
+            report: '#0891B2',
+        };
+
+        let html = '';
+
+        // Overview card
+        html += `
+            <div class="score-overview">
+                <div class="score-grade-large grade-${score.grade}">${score.grade}</div>
+                <div class="score-details">
+                    <div class="score-value">${score.overall.toFixed(1)}<span style="font-size:14px;color:var(--text-secondary)">/10</span></div>
+                    <div class="score-label">Overall Score</div>
+                </div>
+            </div>
+        `;
+
+        // Dimension bars
+        html += '<div style="margin-bottom:16px">';
+        for (const dim of score.dimensions) {
+            const pct = Math.round(dim.score / 10 * 100);
+            const color = dimColors[dim.name] || '#6B7280';
+            const evidence = (dim.evidence || []).join('; ');
+            html += `
+                <div class="score-dimension" title="${Utils.escapeHtml(evidence)}">
+                    <span class="score-dim-label">${Utils.escapeHtml(dim.name)}</span>
+                    <div class="score-dim-bar">
+                        <div class="score-dim-fill" style="width:${pct}%;background:${color}"></div>
+                    </div>
+                    <span class="score-dim-value">${dim.score.toFixed(1)}</span>
+                </div>
+            `;
+        }
+        html += '</div>';
+
+        // Evidence details
+        html += '<div class="knowledge-category"><div class="knowledge-category-header">Evidence Details</div>';
+        for (const dim of score.dimensions) {
+            html += `<div style="margin-bottom:8px">
+                <div style="font-size:12px;font-weight:600;text-transform:capitalize;margin-bottom:2px">${Utils.escapeHtml(dim.name)} <span style="color:var(--text-muted);font-weight:400">(${dim.score.toFixed(1)}/10, weight ${dim.weight})</span></div>
+                <ul style="font-size:11px;color:var(--text-secondary);padding-left:16px;margin:0">
+                    ${(dim.evidence || []).map(e => `<li>${Utils.escapeHtml(e)}</li>`).join('')}
+                </ul>
+            </div>`;
+        }
+        html += '</div>';
+
+        // Comparisons section
+        if (State.comparisons && State.comparisons.length) {
+            html += '<div class="knowledge-category" style="margin-top:16px"><div class="knowledge-category-header">A/B Comparisons</div>';
+            for (const comp of State.comparisons) {
+                const configs = (comp.configs || []).map(c => {
+                    const s = c.score || {};
+                    return `${c.config}: ${s.grade || '?'} (${(s.overall || 0).toFixed(1)})`;
+                }).join(' vs ');
+                html += `
+                    <div class="comparison-card">
+                        <div class="comparison-header">${Utils.escapeHtml(comp.goal || '')}</div>
+                        <div class="comparison-configs">${Utils.escapeHtml(configs)}</div>
+                    </div>
+                `;
+            }
+            html += '</div>';
+        }
+
         container.innerHTML = html;
     },
 
@@ -823,7 +917,7 @@ const Events = {
         UI.clearDetail();
 
         // Parallel fetch all data
-        const [detail, insights, code, knowledge, reports, timeline, wsFiles] = await Promise.all([
+        const [detail, insights, code, knowledge, reports, timeline, wsFiles, score, comparisons] = await Promise.all([
             API.missionDetail(id),
             API.insights(id),
             API.code(id),
@@ -831,6 +925,8 @@ const Events = {
             API.reports(id),
             API.timeline(id),
             API.workspaceFiles(id),
+            API.missionScore(id),
+            API.comparisons(),
         ]);
 
         State.missionDetail = detail;
@@ -840,10 +936,13 @@ const Events = {
         State.reports = reports;
         State.timeline = timeline;
         State.workspaceFiles = wsFiles;
+        State.missionScore = score;
+        State.comparisons = comparisons;
 
         UI.renderTopBar();
         UI.renderTimeline();
         DAG.render();
+        UI.renderScore();
         UI.renderKnowledge();
         UI.renderCode();
         UI.renderReports();

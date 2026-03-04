@@ -29,6 +29,7 @@ from core.event_bus import EventBus, EventType
 from core.state import StateStore
 from core.insight_dag import InsightDAG
 from core.result_verifier import ResultVerifier
+from core.execution_log import ExecutionLog
 from knowledge.tree import KnowledgeTree
 from supervisor.planner import TaskPlanner
 from supervisor.reporter import Reporter
@@ -55,7 +56,7 @@ class AgentState:
 def _serialize_task(t: dict) -> dict:
     """Strip non-serializable fields (messages list can be huge)."""
     success = t.get("success")
-    return {
+    d = {
         "worker": t.get("worker", ""),
         "task": t.get("task", ""),
         "priority": t.get("priority", 0),
@@ -66,6 +67,12 @@ def _serialize_task(t: dict) -> dict:
         "elapsed_s": t.get("elapsed_s"),
         "error": t.get("error"),
     }
+    # Preserve verification metadata
+    if "verification_score" in t:
+        d["verification_score"] = t["verification_score"]
+    if "low_verification" in t:
+        d["low_verification"] = t["low_verification"]
+    return d
 
 
 class Supervisor:
@@ -81,7 +88,8 @@ class Supervisor:
                  event_bus: EventBus, state_store: StateStore,
                  knowledge: KnowledgeTree, reports_dir: str,
                  mission_ctx=None, mission_manager=None,
-                 code_store=None, evolution_store=None):
+                 code_store=None, evolution_store=None,
+                 pipeline_mode: str = "classic"):
         self.llm = llm
         self.registry = registry
         self.event_bus = event_bus
@@ -89,6 +97,7 @@ class Supervisor:
         self.knowledge = knowledge
         self.mission_ctx = mission_ctx
         self.mission_manager = mission_manager
+        self.pipeline_mode = pipeline_mode  # "classic" or "structured"
 
         language = mission_ctx.language if mission_ctx else "en"
         workspace_dir = mission_ctx.workspace_dir if mission_ctx else None
@@ -98,6 +107,11 @@ class Supervisor:
 
         # Result verifier: cross-checks claims vs stdout
         self.result_verifier = ResultVerifier()
+
+        # Execution log: structured pipeline (single source of truth)
+        self.execution_log = None
+        if pipeline_mode == "structured" and workspace_dir:
+            self.execution_log = ExecutionLog(workspace_dir)
 
         # Workers
         self.workers = {
@@ -112,6 +126,10 @@ class Supervisor:
         # Wire result verifier to all workers
         for w in self.workers.values():
             w.result_verifier = self.result_verifier
+        # Wire execution log to all workers (structured pipeline)
+        if self.execution_log:
+            for w in self.workers.values():
+                w.execution_log = self.execution_log
 
         # Code version store (for workspace summary in context)
         self.code_store = code_store
@@ -142,6 +160,8 @@ class Supervisor:
 
         # Failure tracking for smarter pivoting
         self._consecutive_failures: dict = {}  # worker_name → count
+        # Flow monitor advisories from last cycle (avoids double-call)
+        self._last_advisories: list = []
 
         # ── Memory Distillation (DAG-based) ──────────────────────
         # Structured insight graph with relevance scoring
@@ -175,6 +195,9 @@ class Supervisor:
             "result_verifier": self.result_verifier.to_dict(),
             "goal_tracker": self.goal_tracker.to_dict(),
             "flow_monitor": self.flow_monitor.to_dict(),
+            # Round 10: pipeline mode + execution log
+            "pipeline_mode": self.pipeline_mode,
+            "execution_log": self.execution_log.to_dict() if self.execution_log else None,
         }
         self.state.checkpoint("mission", data)
 
@@ -219,6 +242,12 @@ class Supervisor:
             self.goal_tracker = GoalTracker.from_dict(cp["goal_tracker"], ws_dir)
         if "flow_monitor" in cp:
             self.flow_monitor = FlowMonitor.from_dict(cp["flow_monitor"])
+        # Restore execution log (Round 10)
+        self.pipeline_mode = cp.get("pipeline_mode", self.pipeline_mode)
+        if cp.get("execution_log") and ws_dir:
+            self.execution_log = ExecutionLog.from_dict(cp["execution_log"], ws_dir)
+            for w in self.workers.values():
+                w.execution_log = self.execution_log
 
     # ── Main entry points ────────────────────────────────────────────
 
@@ -238,6 +267,12 @@ class Supervisor:
         self.result_verifier = ResultVerifier()
         for w in self.workers.values():
             w.result_verifier = self.result_verifier
+
+        # Reset execution log for new mission
+        if self.pipeline_mode == "structured" and self.mission_ctx:
+            self.execution_log = ExecutionLog(self.mission_ctx.workspace_dir)
+            for w in self.workers.values():
+                w.execution_log = self.execution_log
 
         self._print_header()
 
@@ -363,6 +398,7 @@ class Supervisor:
                 print(f"\n  [Supervisor] Mission complete!")
                 self.agent_state = AgentState.FINISHED
                 report = self._generate_report()
+                self._auto_score()
                 self._save_checkpoint()
                 self._cleanup_workspace_processes()
                 self._print_footer()
@@ -451,21 +487,21 @@ class Supervisor:
                         "completion_rate": 1.0,
                     }, source="goal_tracker")
 
-            # ── Step 4c: Flow monitor analysis ─────────────────
-            advisories = self.flow_monitor.analyze(
+            # ── Step 4c: Flow monitor analysis (single call per cycle) ─
+            self._last_advisories = self.flow_monitor.analyze(
                 cycle=self.cycle,
                 tasks=self.completed_tasks,
                 dag=self.insight_dag,
                 failures=self._consecutive_failures,
             )
-            if advisories:
-                for adv in advisories:
+            if self._last_advisories:
+                for adv in self._last_advisories:
                     print(f"  [FlowMonitor] {adv.severity}: {adv.message}")
                     self.event_bus.emit(EventType.FLOW_ADVISORY, adv.to_dict(),
                                         source="flow_monitor")
 
                 # Apply critical advisory hard overrides
-                for adv in advisories:
+                for adv in self._last_advisories:
                     if adv.severity == "critical" and adv.suggested_action.startswith("skip_worker:"):
                         worker_to_skip = adv.suggested_action.split(":")[1]
                         self._consecutive_failures[worker_to_skip] = 0  # Reset so prompt doesn't keep warning
@@ -478,6 +514,7 @@ class Supervisor:
         print(f"\n  [Supervisor] Max cycles ({self.max_cycles}) reached")
         self.agent_state = AgentState.FINISHED
         report = self._generate_report()
+        self._auto_score()
         self._save_checkpoint()
         self._cleanup_workspace_processes()
         self._print_footer()
@@ -514,6 +551,24 @@ class Supervisor:
         error = result.get("error", "")
         success = result.get("success", False)
         elapsed = result.get("elapsed_s", 0)
+
+        # Skip LLM extraction for low-verification results to prevent amplifying fabricated numbers
+        verification_score = result.get("verification_score")
+        tool_calls = result.get("tool_calls", [])
+        if success and verification_score is not None and verification_score < 0.3 and not tool_calls:
+            # Low verification + no tool calls = likely fabricated
+            insight_text = f"[{worker_name}] {task_desc[:80]} — completed but results UNVERIFIED (no tool execution detected)"
+            node_id = self.insight_dag.add(
+                cycle=self.cycle,
+                worker=worker_name,
+                task=task_desc,
+                success=success,
+                content=insight_text,
+                references=[],
+                code_refs=[],
+            )
+            print(f"  [Memory] Insight {node_id} (UNVERIFIED, skipping LLM extraction): {insight_text[:120]}...")
+            return
 
         # Build workspace context: list what files exist after this task
         workspace_files = ""
@@ -748,14 +803,8 @@ Write the working_memory as bullet points. Be concise but complete."""
         # Goal completion status
         goal_status_text = self.goal_tracker.format_for_prompt()
 
-        # Flow monitor advisories (from last cycle)
-        flow_advisories = self.flow_monitor.analyze(
-            cycle=self.cycle,
-            tasks=self.completed_tasks,
-            dag=self.insight_dag,
-            failures=self._consecutive_failures,
-        )
-        flow_text = FlowMonitor.format_for_prompt(flow_advisories) if flow_advisories else ""
+        # Flow monitor advisories (from previous cycle's post-dispatch analysis)
+        flow_text = FlowMonitor.format_for_prompt(self._last_advisories) if self._last_advisories else ""
 
         prompt = f"""You are a research supervisor. Based on your working memory (distilled insights from all past work), decide the single best next action.
 
@@ -857,6 +906,10 @@ Respond with ONLY JSON:
         # Set cycle on worker for result verification
         worker._current_cycle = self.cycle
 
+        # Give coder access to workspace_dir for file existence checks
+        if worker_name == "coder" and self.mission_ctx:
+            worker._workspace_dir = self.mission_ctx.workspace_dir
+
         self.event_bus.emit(EventType.TASK_ASSIGNED, {
             "worker": worker_name, "task": task_desc,
         }, source="supervisor")
@@ -895,12 +948,23 @@ Respond with ONLY JSON:
 
         result = worker.run(task_desc, context=context)
 
+        # Transfer tool call log for downstream checks
+        if hasattr(worker, '_last_tool_calls'):
+            result["tool_calls"] = worker._last_tool_calls
+
         result_entry = {
             "worker": worker_name,
             "task": task_desc,
             **result,
         }
         self.completed_tasks.append(result_entry)
+
+        # ── Verification quality gate ────────────────────────
+        verification_score = result.get("verification_score")
+        if result.get("success") and verification_score is not None:
+            if verification_score < 0.3 and worker_name in ("coder", "reviewer"):
+                print(f"  [Supervisor] LOW VERIFICATION: {worker_name} score={verification_score:.0%}")
+                result_entry["low_verification"] = True
 
         # ── Step 4: Extract insight from result ────────────────
         if result.get("success"):
@@ -1040,6 +1104,23 @@ Respond with ONLY JSON:
             errors=self.errors,
             working_memory=self.working_memory,
         )
+
+    # ── Auto-scoring ────────────────────────────────────────────────
+
+    def _auto_score(self):
+        """Run MissionScorer at mission end."""
+        if not self.mission_ctx:
+            return
+        try:
+            from core.mission_scorer import MissionScorer
+            scorer = MissionScorer()
+            mission_dir = os.path.dirname(self.mission_ctx.workspace_dir)
+            score = scorer.score_mission(mission_dir)
+            print(f"  [Scorer] Mission grade: {score.grade} ({score.overall:.1f}/10)")
+            for d in score.dimensions:
+                print(f"    {d.name}: {d.score:.1f}/10 (weight {d.weight})")
+        except Exception as e:
+            print(f"  [Scorer] Auto-scoring failed: {e}")
 
     # ── Process cleanup ────────────────────────────────────────────
 

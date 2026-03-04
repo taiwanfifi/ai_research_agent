@@ -107,6 +107,8 @@ def _get_missions(missions_dir):
         if manifest is None:
             manifest = {"mission_id": entry.name}
         cp = _load_checkpoint(entry)
+        # Check for mission score
+        score_data = _read_json(entry / "workspace" / "mission_score.json")
         info = {
             "id": entry.name,
             "goal": manifest.get("goal", ""),
@@ -119,6 +121,8 @@ def _get_missions(missions_dir):
             "state": cp.get("state", "") if cp else "",
             "task_count": len(cp.get("completed_tasks", [])) if cp else 0,
             "error_count": len(cp.get("errors", [])) if cp else 0,
+            "score": score_data.get("overall") if score_data else None,
+            "grade": score_data.get("grade") if score_data else None,
         }
         results.append(info)
     return results
@@ -214,6 +218,27 @@ def _get_report_content(missions_dir, mission_id, filename):
     # Sanitize filename to prevent path traversal
     safe_name = Path(filename).name
     return _read_text(mdir / "reports" / safe_name)
+
+
+def _get_mission_score(missions_dir, mission_id):
+    """Mission quality score from mission_score.json."""
+    mdir = missions_dir / mission_id
+    return _read_json(mdir / "workspace" / "mission_score.json")
+
+
+def _get_comparisons(missions_dir):
+    """List all A/B comparison results."""
+    comp_dir = missions_dir / "_comparisons"
+    if not comp_dir.is_dir():
+        return []
+    results = []
+    for f in sorted(comp_dir.iterdir()):
+        if f.suffix == ".json":
+            data = _read_json(f)
+            if data:
+                data["_filename"] = f.name
+                results.append(data)
+    return results
 
 
 def _get_workspace_files(missions_dir, mission_id):
@@ -352,7 +377,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
     # Route table: (pattern, handler_method_name)
     ROUTES = [
         (r"^/api/missions$", "_api_missions"),
+        (r"^/api/comparisons$", "_api_comparisons"),
         (r"^/api/mission/([^/]+)$", "_api_mission_detail"),
+        (r"^/api/mission/([^/]+)/score$", "_api_mission_score"),
         (r"^/api/mission/([^/]+)/insights$", "_api_insights"),
         (r"^/api/mission/([^/]+)/code$", "_api_code"),
         (r"^/api/mission/([^/]+)/code/([^/]+)/diff/([^/]+)/([^/]+)$", "_api_diff"),
@@ -429,10 +456,20 @@ class DashboardHandler(SimpleHTTPRequestHandler):
     def _api_missions(self):
         self._json_response(_get_missions(self.missions_dir))
 
+    def _api_comparisons(self):
+        self._json_response(_get_comparisons(self.missions_dir))
+
     def _api_mission_detail(self, mission_id):
         data = _get_mission_detail(self.missions_dir, mission_id)
         if data is None:
             self._json_response({"error": "Mission not found"}, 404)
+        else:
+            self._json_response(data)
+
+    def _api_mission_score(self, mission_id):
+        data = _get_mission_score(self.missions_dir, mission_id)
+        if data is None:
+            self._json_response({"error": "No score available"}, 404)
         else:
             self._json_response(data)
 

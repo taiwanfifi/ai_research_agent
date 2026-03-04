@@ -477,7 +477,8 @@ class MiniMaxClient:
 
     def agent_loop(self, task: str, system_prompt: str, tools_defs: list,
                    tool_executor, max_turns: int = 10,
-                   on_response=None, on_tool_call=None, on_tool_result=None):
+                   on_response=None, on_tool_call=None, on_tool_result=None,
+                   execution_log_summary: str = None):
         """
         Run a complete agent loop with proactive context compaction.
 
@@ -505,16 +506,37 @@ class MiniMaxClient:
             current_tools = None if is_summary_turn else tools_defs
 
             if is_summary_turn and turn == max_turns - 1:
-                # Inject a prompt nudge to produce a summary
+                # Build summary prompt — with or without execution log data
+                summary_content = (
+                    "[System] You are running low on turns. "
+                    "Stop using tools and write your FINAL SUMMARY now.\n\n"
+                )
+
+                # If execution log data is available, inject ground truth
+                if execution_log_summary and execution_log_summary.strip() != "(no tool executions recorded)":
+                    summary_content += (
+                        "ACTUAL EXECUTION RESULTS (ground truth from execution_log.json):\n"
+                        f"{execution_log_summary}\n\n"
+                        "CRITICAL: Use ONLY the numbers shown above. "
+                        "If a metric is not listed, say 'not measured'.\n"
+                    )
+                else:
+                    summary_content += (
+                        "CRITICAL RULES:\n"
+                        "1. ONLY report numbers that appeared in tool execution results above\n"
+                        "2. If you did not run code or find papers, say so explicitly — do NOT invent numbers\n"
+                        "3. For each claim, reference which tool call produced it\n"
+                        "4. If experiments failed or were not completed, report the failure honestly\n"
+                    )
+
+                summary_content += (
+                    "5. Structure with ### headers. Include file names of files you actually created.\n\n"
+                    "It is MUCH better to report 'experiment not completed' than to fabricate results."
+                )
+
                 messages.append({
                     "role": "user",
-                    "content": (
-                        "[System] You are running low on turns. "
-                        "Stop using tools and write your FINAL SUMMARY now. "
-                        "Include all key findings, specific numbers, paper titles, "
-                        "file names, and results from your work above. "
-                        "Structure it with ### headers."
-                    ),
+                    "content": summary_content,
                 })
                 print(f"  [LLM] Turn {turn}/{max_turns}: forcing summary (no tools)")
 
