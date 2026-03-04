@@ -80,7 +80,7 @@ def _make_registry() -> ToolRegistry:
 
 def build_system(ctx: MissionContext, manager: MissionManager,
                   pipeline_mode: str = "classic",
-                  validation_mode: str = "keyword") -> dict:
+                  validation_mode: str = "llm_full") -> dict:
     """Initialize all system components scoped to a mission context."""
     _check_system_resources()
 
@@ -355,8 +355,8 @@ Examples:
                         help="Pipeline mode: classic (v9.2) or structured (execution log)")
     parser.add_argument("--validation-mode",
                         choices=["keyword", "llm_full", "llm_critical", "exec_first", "hybrid"],
-                        default="keyword",
-                        help="Validation mode: keyword (legacy), llm_full (all 3 judge calls), "
+                        default="llm_full",
+                        help="Validation mode: keyword (legacy), llm_full (all 3 judge calls, default), "
                              "llm_critical (judge Call 1 only), exec_first (judge Call 3 only), "
                              "hybrid (structured JSON + judge fallback)")
     parser.add_argument("--status", "-s", action="store_true", help="Show system status")

@@ -91,7 +91,7 @@ class Supervisor:
                  mission_ctx=None, mission_manager=None,
                  code_store=None, evolution_store=None,
                  pipeline_mode: str = "classic",
-                 validation_mode: str = "keyword"):
+                 validation_mode: str = "llm_full"):
         self.llm = llm
         self.registry = registry
         self.event_bus = event_bus
