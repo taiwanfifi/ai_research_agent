@@ -147,7 +147,13 @@ class FlowMonitor:
         if not dag or dag.active_count() < 4:
             return []
 
-        nodes = dag.get_all_active()
+        # Get active nodes from DAG (filter non-archived, sort by cycle)
+        try:
+            nodes = [n for n in dag.nodes.values() if not n.archived]
+            nodes.sort(key=lambda n: n.cycle)
+        except AttributeError:
+            return []
+
         if len(nodes) < 4:
             return []
 
