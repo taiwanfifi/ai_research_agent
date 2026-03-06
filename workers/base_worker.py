@@ -399,12 +399,26 @@ If task should not be done:
                 full_output, tool_calls_log, messages, elapsed,
             )
 
-        # Determine success from judge evaluation
-        is_valid = judge_result.get("is_substantive", True)
+        # Determine success: task_completed is primary, is_substantive is secondary
+        task_completed = judge_result.get("task_completed", True)
+        is_substantive = judge_result.get("is_substantive", True)
+        has_files = bool(judge_result.get("has_code_output", False))
+
+        # Hard evidence: if tool_calls show files were written, that's substantive work
+        files_written = [tc.get("file_written", "") for tc in tool_calls_log
+                        if tc.get("file_written")]
+        if files_written:
+            has_files = True
+
         error_msg = ""
 
-        if not is_valid:
-            error_msg = "Output validation failed: LLM Judge determined output is not substantive"
+        # A task is valid if it was completed OR produced files/code output
+        # "not substantive" alone doesn't fail — it just means procedural narration
+        is_valid = task_completed or has_files
+        if not is_valid and not is_substantive:
+            error_msg = "Output validation failed: LLM Judge determined task was not completed and output is not substantive"
+        elif not is_valid:
+            error_msg = "Output validation failed: LLM Judge determined task was not completed"
 
         # Check for contradicted claims (fabrication detection)
         contradicted = [c for c in judge_result.get("claims_vs_stdout", [])

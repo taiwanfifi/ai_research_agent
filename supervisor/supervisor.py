@@ -140,10 +140,9 @@ class Supervisor:
             for w in self.workers.values():
                 w.llm_judge = self.llm_judge
                 w.validation_mode = validation_mode
-        # Enable inner monologue when using LLM judge (workers can reflect + pushback)
-        if self.llm_judge:
-            for w in self.workers.values():
-                w.enable_monologue = True
+        # Inner monologue disabled by default — A/B test showed it hurts
+        # (wastes turns on reflection instead of execution, D vs B grade)
+        # Can be enabled per-worker if needed via w.enable_monologue = True
         # Wire execution log to all workers (structured pipeline)
         if self.execution_log:
             for w in self.workers.values():

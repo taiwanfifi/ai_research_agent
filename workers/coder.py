@@ -79,6 +79,7 @@ class CoderWorker(BaseWorker):
 - **Text generation** (summarization, translation, chat): Use `AutoModelForCausalLM`
 - **NEVER use causal LM loss (next-token prediction) to train a classifier** — it will produce 0.0 accuracy
 - When using PEFT/LoRA with classification: `task_type=TaskType.SEQ_CLS` in LoraConfig
+- **SST-2 column names**: HuggingFace uses 'sentence', but saved JSON files may use 'text'. Always check actual column names with `list(dataset.column_names)` or `data[0].keys()` before processing.
 
 ## GPU/Device Guidelines
 - **PEFT/LoRA fine-tuning**: ALWAYS use CPU. MPS DOES NOT WORK (crashes with NoneType errors). Add this at the TOP of every training script:

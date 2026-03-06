@@ -90,9 +90,9 @@ class LLMJudge:
         if worker_name == "explorer":
             worker_guide = "Worker role: EXPLORER (searches papers/repos). Judge by: papers found, relevance, citations. Do NOT penalize for missing code/results — that's not this worker's job."
         elif worker_name == "coder":
-            worker_guide = "Worker role: CODER (writes & runs code). Judge by: code quality, execution success, results produced."
+            worker_guide = "Worker role: CODER (writes & runs code). Judge by: did they write/edit files? did code run without errors? Bug fixes and file edits count as task_completed even without new metrics. is_substantive=true if any file was written/edited or code was executed."
         elif worker_name == "reviewer":
-            worker_guide = "Worker role: REVIEWER (benchmarks/evaluates). Judge by: metrics measured, reproducibility, rigor."
+            worker_guide = "Worker role: REVIEWER (benchmarks/evaluates). Judge by: did they run code and produce metrics? Computing statistics from existing result files also counts as task_completed. is_substantive=true if metrics/analysis were produced."
 
         user_prompt = f"""Task: {task[:200]}
 {worker_guide}
