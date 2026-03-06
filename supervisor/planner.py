@@ -98,6 +98,8 @@ Respond with ONLY a JSON array of tasks:
 8. **Each task description must be self-contained** — a worker should understand what to do without seeing other tasks
 9. The adaptive supervisor will add more tasks as needed, so don't over-plan
 10. **Coder training tasks MUST use small subsets first** — e.g. "use first 2000 samples, 1-2 epochs" to verify code works, then scale up
+11. **Time budget**: Each code execution has a 600s timeout. ONE training run on 2000 samples ≈ 200-400s CPU. NEVER put multiple training runs (e.g. 3 seeds or multiple configs) in one task — split them into separate tasks.
+12. **Separate training from evaluation**: One task trains and saves checkpoints/metrics. A DIFFERENT task loads saved metrics and computes statistics/plots.
 """
 
         response = self.llm.chat([

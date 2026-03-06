@@ -1,0 +1,154 @@
+{
+  "learnings": [
+    {
+      "id": "L_class_vs_causal",
+      "type": "pitfall",
+      "category": "training",
+      "pattern": "CRITICAL: For CLASSIFICATION tasks (sentiment, NLI, topic), MUST use AutoModelForSequenceClassification, NOT AutoModelForCausalLM. Causal LM produces 0.0% accuracy on classification. With PEFT/LoRA, set task_type=TaskType.SEQ_CLS.",
+      "context": "Any classification task with decoder-only models (GPT-2, DistilGPT-2)",
+      "confidence": 1.0,
+      "mission_ids": [
+        "mission_20260306_150649",
+        "mission_20260307_051742"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-06T15:51:32"
+    },
+    {
+      "id": "L_mps_peft",
+      "type": "pitfall",
+      "category": "environment",
+      "pattern": "PEFT/LoRA + HuggingFace Trainer ALWAYS fails on Apple MPS. Must force CPU via os.environ['CUDA_VISIBLE_DEVICES']='' at top of script, BEFORE any torch imports.",
+      "context": "All PEFT/LoRA training on Apple Silicon",
+      "confidence": 1.0,
+      "mission_ids": [
+        "mission_20260306_123406",
+        "mission_20260305_020851",
+        "mission_20260304_180853"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-06T13:00:00"
+    },
+    {
+      "id": "L_sst2_columns",
+      "type": "pitfall",
+      "category": "data",
+      "pattern": "SST-2 column name mismatch: HuggingFace uses 'sentence', local JSON may use 'text'. Always check actual column names before processing. Also: test set has no labels (all zeros) — use validation set.",
+      "context": "When loading SST-2 from different sources",
+      "confidence": 0.9,
+      "mission_ids": [
+        "mission_20260307_051742",
+        "mission_20260305_013136"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-07T05:54:11"
+    },
+    {
+      "id": "L_peft_library",
+      "type": "tool_preference",
+      "category": "tools",
+      "pattern": "HuggingFace PEFT library is the standard for LoRA. Use AutoTokenizer (not DistilGPT2Tokenizer). For DistilGPT-2: target_modules=['c_attn','c_proj'], rank 4-16, alpha=32, dropout=0.1.",
+      "context": "Parameter-efficient fine-tuning on transformer models",
+      "confidence": 0.8,
+      "mission_ids": [
+        "mission_20260304_103545",
+        "mission_20260305_020851"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-04T11:20:55"
+    },
+    {
+      "id": "L_dataset_size",
+      "type": "parameter_guidance",
+      "category": "data",
+      "pattern": "Minimum 2000 training samples for meaningful fine-tuning. 500 samples → high variance, 20 samples → 62% accuracy. Use 2000+ for valid comparisons across configurations.",
+      "context": "Dataset sizing for classification fine-tuning experiments",
+      "confidence": 0.8,
+      "mission_ids": [
+        "mission_20260305_002622",
+        "mission_20260306_164452"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-05T00:51:43"
+    },
+    {
+      "id": "L_training_timeout",
+      "type": "parameter_guidance",
+      "category": "training",
+      "pattern": "CPU training on 2000 samples, 2 epochs, batch_size=8 ≈ 200-400s. Never combine multiple seeds or configs in one execution (600s timeout). Use batch_size 8-16, eval_steps 500+. Use eval_strategy not evaluation_strategy.",
+      "context": "Time-constrained training on consumer CPU",
+      "confidence": 0.8,
+      "mission_ids": [
+        "mission_20260306_150649",
+        "mission_20260305_013136"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-06T15:48:02"
+    },
+    {
+      "id": "L_eval_pipeline",
+      "type": "strategy_success",
+      "category": "evaluation",
+      "pattern": "Write metrics to JSON files IMMEDIATELY after each training run (not at script end). Separate training from evaluation — one task trains and saves, another loads results and computes statistics. Verify evaluation data exists before starting.",
+      "context": "Reliable experiment pipelines",
+      "confidence": 0.8,
+      "mission_ids": [
+        "mission_20260306_123406",
+        "mission_20260305_013136"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-06T12:55:50"
+    },
+    {
+      "id": "L_fair_comparison",
+      "type": "pitfall",
+      "category": "evaluation",
+      "pattern": "Fair comparisons require identical dataset sizes, identical preprocessing, and multiple seeds (3+). Never compare rank-4 on 1600 samples vs rank-16 on 500 samples.",
+      "context": "When running ablation studies or configuration comparisons",
+      "confidence": 0.7,
+      "mission_ids": [
+        "mission_20260306_164452",
+        "mission_20260305_020851"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-06T16:44:52"
+    },
+    {
+      "id": "L_pad_token",
+      "type": "pitfall",
+      "category": "training",
+      "pattern": "GPT-2 models need explicit pad_token_id. Set tokenizer.pad_token = tokenizer.eos_token and model.config.pad_token_id = tokenizer.pad_token_id.",
+      "context": "When using GPT-2 family models for classification with batched inference",
+      "confidence": 0.7,
+      "mission_ids": [
+        "mission_20260304_103545"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-04T11:20:55"
+    },
+    {
+      "id": "L_edit_not_rewrite",
+      "type": "strategy_failure",
+      "category": "code",
+      "pattern": "Rewriting entire files to fix small bugs introduces new errors. Use edit_function for surgical fixes. Multiple failed rewrites indicate the approach is wrong — try a different strategy instead of a third rewrite.",
+      "context": "When fixing bugs in existing code files",
+      "confidence": 0.7,
+      "mission_ids": [
+        "mission_20260306_142938"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-06T15:03:43"
+    }
+  ],
+  "updated_at": "2026-03-07T06:10:00"
+}

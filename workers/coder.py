@@ -100,6 +100,13 @@ When printing results, use the format: `metric_name: value`
 Examples: `accuracy: 85.3`, `loss: 0.42`, `training_time: 12.5s`, `f1_score: 0.91`
 This ensures metrics are automatically captured by the execution log.
 
+## Time Budget
+- Code execution has a 600s (10min) timeout. Plan accordingly:
+  - Training ONE model on 2000 samples for 2 epochs ≈ 200-400s on CPU
+  - Do NOT try to train multiple configurations in a single run_python_code call
+  - If training 3 seeds, do them ONE AT A TIME in separate run_python_code calls
+  - Always add timing: `import time; t0=time.time()` ... `print(f"training_time: {{time.time()-t0:.1f}}s")`
+
 ## Code Quality
 - Write modular, testable code with clear function boundaries
 - Use type annotations for function signatures

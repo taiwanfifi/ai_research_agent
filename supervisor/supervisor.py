@@ -978,9 +978,11 @@ Choose ONE action:
 ## Decision Rules
 - NEVER "done" without code written AND benchmarks run
 - After 2-3 search rounds → "implement"
-- If code failed → "fix_code"
+- If code failed ONCE → "fix_code" (with specific error context)
+- If same code failed TWICE → "replan" (the approach is wrong, not just a bug)
 - If results poor → "improve" or "search_more"
 - "done" = papers + code + tests + results analyzed
+- Prefer executing queued tasks over generating new ones
 
 ## Research Quality Rules (CRITICAL)
 When evaluating if the current direction is working, watch for these failure patterns:
