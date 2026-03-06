@@ -91,7 +91,7 @@ Respond with ONLY a JSON array of tasks:
    - GOOD: "Run train.py with rank=8,16,32 and save results to results.json"
    - BAD: "Implement LoRA, train it, benchmark it, and plot results" (too many things!)
 3. **Coder tasks MUST specify the output filename**: "Save as X.py" or "Edit function Y in X.py"
-4. **Separate writing code from running experiments** — one task writes the script, another runs it
+4. **Each coder task MUST produce output** — "Write training script AND run it, print accuracy/loss results". Never create a task that only writes a file without executing it. The coder should write_file + run_python_code in the SAME task.
 5. **Reviewer tasks MUST specify metrics**: "Measure accuracy, F1, inference time; save results as results.json and comparison_chart.png"
 6. **6-10 tasks is ideal** — distribute as: 1-2 explorer, 3-5 coder, 1-2 reviewer
 7. **Order by dependency** — explorer first, then coder (write → run → plot), then reviewer
@@ -99,7 +99,7 @@ Respond with ONLY a JSON array of tasks:
 9. The adaptive supervisor will add more tasks as needed, so don't over-plan
 10. **Coder training tasks MUST use small subsets first** — e.g. "use first 2000 samples, 1-2 epochs" to verify code works, then scale up
 11. **Time budget**: Each code execution has a 600s timeout. ONE training run on 2000 samples ≈ 200-400s CPU. NEVER put multiple training runs (e.g. 3 seeds or multiple configs) in one task — split them into separate tasks.
-12. **Separate training from evaluation**: One task trains and saves checkpoints/metrics. A DIFFERENT task loads saved metrics and computes statistics/plots.
+12. **Separate training from evaluation**: Training tasks MUST run the training AND save result metrics (accuracy/loss). Evaluation tasks load saved metrics and compute statistics/plots. Each training task should end with real printed metrics.
 """
 
         response = self.llm.chat([
@@ -127,11 +127,12 @@ Respond with ONLY a JSON array of tasks:
             {"worker": "explorer", "task": f"Search for 3+ academic papers relevant to: {goal}. "
              "Output paper titles, authors, citations, arXiv IDs, key contributions.",
              "priority": 1, "depends_on": []},
-            {"worker": "coder", "task": f"Write the core implementation script for: {goal}. "
-             "Save as experiment.py. Focus on model setup and data loading only.",
+            {"worker": "coder", "task": f"Write AND run the core implementation for: {goal}. "
+             "Save code as experiment.py, then EXECUTE it with run_python_code. "
+             "Print results as 'metric_name: value' (e.g. accuracy: 85.3).",
              "priority": 2, "depends_on": []},
-            {"worker": "coder", "task": f"Run experiment.py, collect metrics, save results. "
-             "If errors occur, fix them. Print results as 'metric_name: value'.",
+            {"worker": "coder", "task": f"Run additional experiments/configurations for: {goal}. "
+             "If errors occur, fix AND re-run. Must produce real metrics.",
              "priority": 3, "depends_on": []},
             {"worker": "coder", "task": "Generate comparison plots from results. "
              "Save as comparison_plot.png with English labels.",

@@ -420,6 +420,18 @@ If task should not be done:
         elif not is_valid:
             error_msg = "Output validation failed: LLM Judge determined task was not completed"
 
+        # Check for explicit placeholder/fabrication signals in stdout
+        stdout_text = " ".join(stdout_capture).lower()
+        placeholder_signals = ["placeholder data", "representative data", "using placeholder",
+                               "using representative", "fabricated", "dummy data", "fake data",
+                               "simulated results", "not real results"]
+        for signal in placeholder_signals:
+            if signal in stdout_text and is_valid:
+                is_valid = False
+                error_msg = f"Output uses {signal} — must produce real experimental results"
+                print(f"  [{self.WORKER_NAME}] BLOCKED: {error_msg}")
+                break
+
         # Check for contradicted claims (fabrication detection)
         # Require 2+ contradictions to block — single contradictions are often false positives
         # from the judge misinterpreting descriptive statements as numerical claims

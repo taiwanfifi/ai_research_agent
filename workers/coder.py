@@ -48,6 +48,12 @@ class CoderWorker(BaseWorker):
 6. If there are errors, analyze and fix them
 7. Report results with metrics (time, memory, device used)
 8. **ALWAYS use write_file to save your final code** — do NOT just run code without saving it
+9. **When task says "run" or "train"**: Execute the training code DIRECTLY in run_python_code.
+   Do NOT just write a .py file — you must also EXECUTE it and show the results.
+   The correct pattern: write the script with write_file, then run it with run_python_code.
+   Do NOT use exec(open(...)) or subprocess — paste the actual training code into run_python_code.
+10. **If training crashes, fix AND re-run**: Don't just fix the code and declare done.
+    After fixing, always re-execute to verify the fix produces real metrics.
 
 ## CRITICAL: Editing Existing Files
 - **NEVER rewrite a whole file to fix a bug or change one function**
