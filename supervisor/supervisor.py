@@ -413,6 +413,18 @@ class Supervisor:
                 has_code = "coder" in workers_used
                 has_eval = "reviewer" in workers_used
 
+                # Check if execution log has real metrics (not just file writes)
+                has_real_metrics = False
+                if self.execution_log:
+                    recent = self.execution_log.get_latest_metrics(n=20)
+                    # Look for result metrics (accuracy, loss, f1, etc.)
+                    result_keywords = {"accuracy", "loss", "f1", "precision", "recall", "bleu", "rouge", "perplexity"}
+                    for entry in recent:
+                        metric_names = {k.lower() for k in entry.get("metrics", {}).keys()}
+                        if metric_names & result_keywords:
+                            has_real_metrics = True
+                            break
+
                 if not has_code:
                     print(f"  [Supervisor] BLOCKED 'done' — no code written yet!")
                     action = {"action": "implement",
@@ -425,6 +437,13 @@ class Supervisor:
                               "task": f"Evaluate and benchmark: {self.direction}",
                               "reason": "Cannot finish without evaluation"}
                     action_type = "benchmark"
+                elif not has_real_metrics and self.cycle < self.max_cycles - 1:
+                    print(f"  [Supervisor] BLOCKED 'done' — no real metrics (accuracy/loss/f1) in execution log!")
+                    action = {"action": "fix_code",
+                              "task": f"Training did not produce metrics. Re-run or fix: {self.direction}",
+                              "worker": "coder",
+                              "reason": "No result metrics found — training may have crashed"}
+                    action_type = "fix_code"
 
             print(f"  [Supervisor] Decision: {action_type}")
             if action.get("reason"):

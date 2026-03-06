@@ -81,6 +81,20 @@ class CoderWorker(BaseWorker):
 - When using PEFT/LoRA with classification: `task_type=TaskType.SEQ_CLS` in LoraConfig
 - **SST-2 column names**: HuggingFace uses 'sentence', but saved JSON files may use 'text'. Always check actual column names with `list(dataset.column_names)` or `data[0].keys()` before processing.
 
+## CRITICAL: HuggingFace TrainingArguments Compatibility
+- Use `eval_strategy` NOT `evaluation_strategy` (deprecated in transformers >= 4.46, removed in 4.50+)
+- Same for `save_strategy`, `logging_strategy` — use the short names
+- Example:
+  ```python
+  TrainingArguments(
+      output_dir="./output",
+      eval_strategy="epoch",      # NOT evaluation_strategy
+      save_strategy="epoch",      # NOT save_strategy="epoch" (this one is fine)
+      num_train_epochs=2,
+      per_device_train_batch_size=16,
+  )
+  ```
+
 ## GPU/Device Guidelines
 - **PEFT/LoRA fine-tuning**: ALWAYS use CPU. MPS DOES NOT WORK (crashes with NoneType errors). Add this at the TOP of every training script:
   ```python
