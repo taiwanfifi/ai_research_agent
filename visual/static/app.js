@@ -38,6 +38,11 @@ const Utils = {
         return colors[worker] || '#6B7280';
     },
 
+    sourceColor(source) {
+        const colors = { child: '#059669', kael: '#2563EB', dialogue: '#D97706', william: '#DC2626', claude: '#8B5CF6', ecosystem: '#6B7280' };
+        return colors[source] || '#6B7280';
+    },
+
     /** Markdown → HTML (headings, bold, italic, code, links, lists, tables) */
     simpleMarkdown(md) {
         if (!md) return '';
@@ -179,6 +184,13 @@ const State = {
         dagShowArchived: false,
         dagRelevanceMin: 0,
     },
+
+    // Ecosystem
+    ecosystemFeed: [],
+    ecosystemStats: null,
+    dialogues: [],
+    sseConnection: null,
+    ecoFilters: { source: 'all', event: 'all' },
 };
 
 // ---------------------------------------------------------------------------
@@ -209,6 +221,25 @@ const API = {
     diff(id, stem, v1, v2)     { return this.fetchJson(`/api/mission/${id}/code/${stem}/diff/${v1}/${v2}`); },
     workspaceFiles(id)          { return this.fetchJson(`/api/mission/${id}/workspace`); },
     workspaceFile(id, path)     { return this.fetchJson(`/api/mission/${id}/workspace/${path}`); },
+
+    // Ecosystem
+    ecosystemFeed()             { return this.fetchJson('/api/ecosystem/feed'); },
+    ecosystemStats()            { return this.fetchJson('/api/ecosystem/stats'); },
+    ecosystemDialogues()        { return this.fetchJson('/api/ecosystem/dialogues'); },
+    ecosystemToClaude()         { return this.fetchJson('/api/ecosystem/to-claude'); },
+    async ecosystemSend(data) {
+        try {
+            const resp = await fetch('/api/ecosystem/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data),
+            });
+            return await resp.json();
+        } catch (e) {
+            console.error('Send error:', e);
+            return null;
+        }
+    },
 };
 
 // ---------------------------------------------------------------------------
@@ -591,6 +622,20 @@ const UI = {
         State.activeTab = tab;
         document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
         document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === `panel-${tab}`));
+
+        const isEcoTab = (tab === 'ecosystem' || tab === 'dialogues');
+        // Toggle QA vs Chat panel
+        const qaPanel = document.getElementById('qa-panel');
+        const chatPanel = document.getElementById('chat-panel');
+        if (qaPanel) qaPanel.style.display = isEcoTab ? 'none' : '';
+        if (chatPanel) chatPanel.style.display = isEcoTab ? '' : 'none';
+
+        // SSE: connect on ecosystem tab, disconnect on others
+        if (tab === 'ecosystem') {
+            Ecosystem.connectSSE();
+        } else {
+            Ecosystem.disconnectSSE();
+        }
     },
 };
 
@@ -905,6 +950,39 @@ const Events = {
             }
         });
 
+        // Ecosystem feed clicks
+        document.getElementById('eco-feed').addEventListener('click', e => {
+            const item = e.target.closest('.eco-feed-item');
+            if (!item) return;
+            const content = item.dataset.content || '';
+            const source = item.querySelector('.eco-source-badge')?.textContent || '';
+            const event = item.querySelector('.eco-feed-event')?.textContent || '';
+            UI.showDetail(`${source} — ${event}`, [
+                { title: 'Content', html: `<div class="md-content">${Utils.simpleMarkdown(content)}</div>` },
+            ]);
+        });
+
+        // Dialogue card clicks
+        document.getElementById('dialogues-content').addEventListener('click', e => {
+            const card = e.target.closest('.dialogue-card');
+            if (!card) return;
+            const idx = parseInt(card.dataset.dlgIndex);
+            const dialogue = State.dialogues[idx];
+            if (dialogue) Ecosystem.showDialogueDetail(dialogue);
+        });
+
+        // Ecosystem filters
+        const ecoSourceFilter = document.getElementById('eco-source-filter');
+        if (ecoSourceFilter) ecoSourceFilter.addEventListener('change', e => {
+            State.ecoFilters.source = e.target.value;
+            Ecosystem.renderFeed(State.ecosystemFeed);
+        });
+        const ecoEventFilter = document.getElementById('eco-event-filter');
+        if (ecoEventFilter) ecoEventFilter.addEventListener('change', e => {
+            State.ecoFilters.event = e.target.value;
+            Ecosystem.renderFeed(State.ecosystemFeed);
+        });
+
         // Detail close & expand
         document.getElementById('detail-close').addEventListener('click', () => UI.clearDetail());
         const expandBtn = document.getElementById('detail-expand');
@@ -973,6 +1051,253 @@ const Events = {
                 UI.renderMissionList();
             }, 10000); // 10s interval
         }
+    },
+};
+
+// ---------------------------------------------------------------------------
+// Ecosystem — Feed, Stats, Dialogues, SSE, Chat
+// ---------------------------------------------------------------------------
+const Ecosystem = {
+
+    // ---- Sidebar status card ----
+    renderStatus(stats) {
+        if (!stats) return;
+        const pulse = document.getElementById('eco-pulse');
+        const label = document.getElementById('eco-status-label');
+        const isLive = stats.system?.live;
+        pulse.className = `eco-pulse${isLive ? ' live' : ''}`;
+        label.textContent = isLive ? 'Live' : 'Offline';
+
+        const c = stats.child || {};
+        const k = stats.kael || {};
+        const totalChild = (c.core || 0) + (c.working || 0) + (c.episodic || 0);
+        document.getElementById('eco-child-count').textContent = `${totalChild} mem`;
+        document.getElementById('eco-kael-count').textContent = `${k.thoughts || 0} thoughts`;
+        document.getElementById('eco-pressure').textContent = c.pressure != null ? `${Number(c.pressure).toFixed(1)}x` : '—';
+        document.getElementById('eco-creations').textContent = c.creations != null ? c.creations : '—';
+    },
+
+    // ---- Summary cards ----
+    renderSummaryCards(stats) {
+        const container = document.getElementById('eco-summary-cards');
+        if (!stats) { container.innerHTML = ''; return; }
+        const c = stats.child || {};
+        const k = stats.kael || {};
+
+        container.innerHTML = `
+            <div class="eco-summary-card">
+                <div class="eco-card-title"><span class="eco-dot" style="background:var(--source-child)"></span>Child</div>
+                <div class="eco-card-body">
+                    <span class="eco-number">${(c.core || 0) + (c.working || 0) + (c.episodic || 0)}</span>memories<br>
+                    core ${c.core || 0} / working ${c.working || 0} / episodic ${c.episodic || 0}<br>
+                    ${c.valence != null ? `valence: ${Number(c.valence).toFixed(2)}` : ''}
+                </div>
+            </div>
+            <div class="eco-summary-card">
+                <div class="eco-card-title"><span class="eco-dot" style="background:var(--source-kael)"></span>Kael</div>
+                <div class="eco-card-body">
+                    <span class="eco-number">${k.thoughts || 0}</span>thoughts<br>
+                    core beliefs: ${k.core || 0}<br>
+                    observations: ${k.observations || 0}
+                </div>
+            </div>
+            <div class="eco-summary-card">
+                <div class="eco-card-title"><span class="eco-dot" style="background:var(--source-ecosystem)"></span>System</div>
+                <div class="eco-card-body">
+                    ${stats.system?.live ? '<span style="color:var(--status-success);font-weight:600">Running</span>' : '<span style="color:var(--text-muted)">Offline</span>'}<br>
+                    pressure: ${c.pressure != null ? Number(c.pressure).toFixed(1) + 'x' : '—'}<br>
+                    creations: ${c.creations || 0}
+                </div>
+            </div>
+        `;
+    },
+
+    // ---- Feed ----
+    renderFeed(entries) {
+        const container = document.getElementById('eco-feed');
+        if (!entries || !entries.length) {
+            container.innerHTML = '<div class="empty-state">No ecosystem activity</div>';
+            return;
+        }
+
+        // Apply filters
+        let filtered = entries;
+        const sf = State.ecoFilters.source;
+        if (sf !== 'all') filtered = filtered.filter(e => e.source === sf);
+        const ef = State.ecoFilters.event;
+        if (ef !== 'all') filtered = filtered.filter(e => e.event === ef);
+
+        // Reverse for newest first
+        filtered = [...filtered].reverse();
+
+        container.innerHTML = filtered.map(e => {
+            const source = e.source || 'ecosystem';
+            const time = (e.timestamp || '').slice(11, 16); // HH:MM
+            // Strip <think>...</think> from content
+            const content = (e.content || '').replace(/<think>[\s\S]*?<\/think>\s*/g, '');
+            return `
+                <div class="eco-feed-item source-${Utils.escapeHtml(source)}" data-content="${Utils.escapeHtml(content)}">
+                    <div class="eco-feed-meta">
+                        <span class="eco-source-badge ${Utils.escapeHtml(source)}">${Utils.escapeHtml(source)}</span>
+                        <span class="eco-feed-time">${Utils.escapeHtml(time)}</span>
+                    </div>
+                    <div class="eco-feed-body">
+                        <div class="eco-feed-event">${Utils.escapeHtml(e.event || '')}</div>
+                        <div class="eco-feed-content">${Utils.escapeHtml(content.slice(0, 200))}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    },
+
+    // ---- Dialogues ----
+    renderDialogues(dialogues) {
+        const container = document.getElementById('dialogues-content');
+        if (!dialogues || !dialogues.length) {
+            container.innerHTML = '<div class="empty-state">No dialogues recorded</div>';
+            return;
+        }
+
+        // Reverse for newest first
+        const sorted = [...dialogues].reverse();
+
+        container.innerHTML = sorted.map((d, i) => {
+            const turns = d.turns || [];
+            const preview = turns.length > 0
+                ? (turns[0].text || '').replace(/<think>[\s\S]*?<\/think>\s*/g, '').slice(0, 100)
+                : 'Empty dialogue';
+            const time = (d.timestamp || '').slice(11, 16);
+            return `
+                <div class="dialogue-card" data-dlg-index="${dialogues.length - 1 - i}">
+                    <div class="dlg-header">
+                        <span class="dlg-cycle">Cycle ${d.cycle || '?'}</span>
+                        <span class="dlg-time">${Utils.escapeHtml(d.timestamp || '')}</span>
+                    </div>
+                    <div class="dlg-preview">${Utils.escapeHtml(preview)}</div>
+                    <div class="dlg-meta">${turns.length} turn${turns.length !== 1 ? 's' : ''}</div>
+                </div>
+            `;
+        }).join('');
+    },
+
+    showDialogueDetail(dialogue) {
+        if (!dialogue) return;
+        const turns = dialogue.turns || [];
+        const turnsHtml = turns.map(t => {
+            const speaker = (t.speaker || 'unknown').toLowerCase();
+            // Strip <think> blocks
+            const text = (t.text || '').replace(/<think>[\s\S]*?<\/think>\s*/g, '');
+            return `
+                <div class="dialogue-turn speaker-${Utils.escapeHtml(speaker)}">
+                    <div class="turn-speaker">${Utils.escapeHtml(t.speaker || 'Unknown')}</div>
+                    <div class="md-content">${Utils.simpleMarkdown(text)}</div>
+                </div>
+            `;
+        }).join('');
+
+        UI.showDetail(`Dialogue — Cycle ${dialogue.cycle || '?'}`, [
+            { title: 'Time', html: Utils.escapeHtml(dialogue.timestamp || '') },
+            { title: 'Conversation', html: `<div style="display:flex;flex-direction:column;gap:4px">${turnsHtml}</div>` },
+        ]);
+    },
+
+    // ---- SSE ----
+    connectSSE() {
+        if (State.sseConnection) return; // already connected
+        try {
+            const es = new EventSource('/api/ecosystem/sse');
+            es.onmessage = (event) => {
+                try {
+                    const entry = JSON.parse(event.data);
+                    State.ecosystemFeed.push(entry);
+                    // Keep max 200
+                    if (State.ecosystemFeed.length > 200) {
+                        State.ecosystemFeed = State.ecosystemFeed.slice(-200);
+                    }
+                    if (State.activeTab === 'ecosystem') {
+                        Ecosystem.renderFeed(State.ecosystemFeed);
+                    }
+                    // Refresh sidebar stats periodically via SSE events
+                    Ecosystem.refreshStats();
+                } catch (e) { /* ignore parse errors */ }
+            };
+            es.onerror = () => {
+                // Auto-reconnect is handled by EventSource
+            };
+            State.sseConnection = es;
+        } catch (e) {
+            console.error('SSE error:', e);
+        }
+    },
+
+    disconnectSSE() {
+        if (State.sseConnection) {
+            State.sseConnection.close();
+            State.sseConnection = null;
+        }
+    },
+
+    _statsDebounce: null,
+    async refreshStats() {
+        // Debounce: at most once per 10s
+        if (this._statsDebounce) return;
+        this._statsDebounce = setTimeout(() => { this._statsDebounce = null; }, 10000);
+        const stats = await API.ecosystemStats();
+        if (stats) {
+            State.ecosystemStats = stats;
+            Ecosystem.renderStatus(stats);
+        }
+    },
+
+    // ---- Chat ----
+    initChat() {
+        const input = document.getElementById('chat-input');
+        const sendBtn = document.getElementById('chat-send');
+
+        const doSend = async () => {
+            const msg = input.value.trim();
+            if (!msg) return;
+            const sender = document.getElementById('chat-sender').value;
+            const to = document.getElementById('chat-recipient').value;
+
+            // Show sent message
+            const msgContainer = document.getElementById('chat-messages');
+            const div = document.createElement('div');
+            div.className = 'chat-msg sent';
+            div.textContent = `[${sender} → ${to}] ${msg}`;
+            msgContainer.appendChild(div);
+            msgContainer.scrollTop = msgContainer.scrollHeight;
+            input.value = '';
+
+            const result = await API.ecosystemSend({ sender, to, message: msg });
+            const statusDiv = document.createElement('div');
+            statusDiv.className = 'chat-msg status';
+            statusDiv.textContent = result?.status === 'sent' ? 'Delivered' : 'Failed to send';
+            msgContainer.appendChild(statusDiv);
+            msgContainer.scrollTop = msgContainer.scrollHeight;
+        };
+
+        sendBtn.addEventListener('click', doSend);
+        input.addEventListener('keydown', e => {
+            if (e.key === 'Enter') doSend();
+        });
+    },
+
+    // ---- Load all ecosystem data ----
+    async loadAll() {
+        const [feed, stats, dialogues] = await Promise.all([
+            API.ecosystemFeed(),
+            API.ecosystemStats(),
+            API.ecosystemDialogues(),
+        ]);
+        State.ecosystemFeed = feed || [];
+        State.ecosystemStats = stats;
+        State.dialogues = dialogues || [];
+
+        Ecosystem.renderStatus(stats);
+        Ecosystem.renderSummaryCards(stats);
+        Ecosystem.renderFeed(State.ecosystemFeed);
+        Ecosystem.renderDialogues(State.dialogues);
     },
 };
 
@@ -1049,11 +1374,21 @@ const QA = {
 (async function init() {
     Events.init();
     QA.init();
-    State.missions = await API.missions() || [];
+    Ecosystem.initChat();
+
+    // Load missions and ecosystem data in parallel
+    const [missions] = await Promise.all([
+        API.missions(),
+        Ecosystem.loadAll(),
+    ]);
+    State.missions = missions || [];
     UI.renderMissionList();
 
     // Auto-select first mission if available
     if (State.missions.length) {
         Events.selectMission(State.missions[0].id);
     }
+
+    // Periodic ecosystem status refresh (every 30s)
+    setInterval(() => Ecosystem.refreshStats(), 30000);
 })();

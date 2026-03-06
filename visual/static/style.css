@@ -843,3 +843,289 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
+
+/* ================================================================
+   Ecosystem — Source Colors & Components
+   ================================================================ */
+
+:root {
+    --source-child: #059669;
+    --source-kael: #2563EB;
+    --source-dialogue: #D97706;
+    --source-william: #DC2626;
+    --source-claude: #8B5CF6;
+    --source-ecosystem: #6B7280;
+}
+
+/* ---- Sidebar Ecosystem Status Card ---- */
+.ecosystem-status {
+    border-top: 1px solid var(--border);
+    padding: 12px;
+    flex-shrink: 0;
+}
+
+.eco-status-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.eco-pulse {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+}
+.eco-pulse.live {
+    background: var(--status-success);
+    animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+    50% { box-shadow: 0 0 0 4px rgba(16, 185, 129, 0); }
+}
+
+.eco-status-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 12px;
+}
+
+.eco-stat {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+}
+.eco-stat-label { color: var(--text-secondary); }
+.eco-stat-value { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ---- Ecosystem Summary Cards ---- */
+.eco-summary-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.eco-summary-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    background: var(--bg-primary);
+}
+.eco-summary-card .eco-card-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.eco-summary-card .eco-card-title .eco-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.eco-summary-card .eco-card-body {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+.eco-summary-card .eco-card-body .eco-number {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-right: 4px;
+}
+
+/* ---- Ecosystem Feed ---- */
+.eco-feed-item {
+    display: flex;
+    gap: 10px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 6px;
+    cursor: pointer;
+    transition: border-color var(--transition), background var(--transition);
+    border-left: 3px solid var(--border);
+}
+.eco-feed-item:hover { border-color: var(--border-hover); background: var(--bg-primary); }
+.eco-feed-item.source-child  { border-left-color: var(--source-child); }
+.eco-feed-item.source-kael   { border-left-color: var(--source-kael); }
+.eco-feed-item.source-dialogue { border-left-color: var(--source-dialogue); }
+.eco-feed-item.source-william { border-left-color: var(--source-william); }
+.eco-feed-item.source-claude  { border-left-color: var(--source-claude); }
+.eco-feed-item.source-ecosystem { border-left-color: var(--source-ecosystem); }
+
+.eco-feed-meta {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    min-width: 50px;
+}
+.eco-source-badge {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    padding: 1px 6px;
+    border-radius: 3px;
+}
+.eco-source-badge.child    { background: #D1FAE5; color: #065F46; }
+.eco-source-badge.kael     { background: #DBEAFE; color: #1E40AF; }
+.eco-source-badge.dialogue { background: #FEF3C7; color: #92400E; }
+.eco-source-badge.william  { background: #FEE2E2; color: #991B1B; }
+.eco-source-badge.claude   { background: #EDE9FE; color: #5B21B6; }
+.eco-source-badge.ecosystem { background: #F3F4F6; color: #6B7280; }
+
+.eco-feed-time {
+    font-size: 10px;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.eco-feed-body { flex: 1; min-width: 0; }
+.eco-feed-event {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
+}
+.eco-feed-content {
+    font-size: 12px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: 1.4;
+}
+
+/* ---- Dialogues ---- */
+.dialogue-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: border-color var(--transition), background var(--transition);
+    border-left: 3px solid var(--source-dialogue);
+}
+.dialogue-card:hover { border-color: var(--border-hover); background: var(--bg-primary); }
+.dialogue-card .dlg-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+.dialogue-card .dlg-cycle {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--source-dialogue);
+}
+.dialogue-card .dlg-time {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+.dialogue-card .dlg-preview {
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.dialogue-card .dlg-meta {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+/* Dialogue detail turns */
+.dialogue-turn {
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    line-height: 1.5;
+    max-width: 90%;
+}
+.dialogue-turn.speaker-kael {
+    background: #EFF6FF;
+    border-left: 3px solid var(--source-kael);
+    align-self: flex-start;
+}
+.dialogue-turn.speaker-child {
+    background: #ECFDF5;
+    border-left: 3px solid var(--source-child);
+    align-self: flex-start;
+}
+.dialogue-turn .turn-speaker {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: 4px;
+}
+.dialogue-turn.speaker-kael .turn-speaker { color: var(--source-kael); }
+.dialogue-turn.speaker-child .turn-speaker { color: var(--source-child); }
+
+/* ---- Chat Input Row ---- */
+.chat-input-row {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px;
+    border-top: 1px solid var(--border);
+    align-items: center;
+}
+.chat-select {
+    padding: 4px 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    background: var(--bg-secondary);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+#chat-input {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    outline: none;
+    background: var(--bg-secondary);
+}
+#chat-input:focus { border-color: var(--accent); }
+
+/* Chat message styling */
+.chat-msg {
+    padding: 6px 10px;
+    border-radius: var(--radius);
+    max-width: 90%;
+    line-height: 1.5;
+    word-break: break-word;
+    font-size: 12px;
+}
+.chat-msg.sent {
+    background: var(--accent-light);
+    color: var(--accent);
+    align-self: flex-end;
+}
+.chat-msg.status {
+    background: #D1FAE5;
+    color: #065F46;
+    align-self: center;
+    font-size: 11px;
+}

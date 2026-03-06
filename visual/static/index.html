@@ -39,6 +39,19 @@
             <div id="mission-list" class="mission-list">
                 <div class="empty-state">Loading missions...</div>
             </div>
+            <!-- Ecosystem Status Card -->
+            <div id="ecosystem-status" class="ecosystem-status">
+                <div class="eco-status-header">
+                    <span class="eco-pulse" id="eco-pulse"></span>
+                    <span class="eco-status-label" id="eco-status-label">Offline</span>
+                </div>
+                <div class="eco-status-body">
+                    <div class="eco-stat"><span class="eco-stat-label">child</span><span class="eco-stat-value" id="eco-child-count">—</span></div>
+                    <div class="eco-stat"><span class="eco-stat-label">kael</span><span class="eco-stat-value" id="eco-kael-count">—</span></div>
+                    <div class="eco-stat"><span class="eco-stat-label">pressure</span><span class="eco-stat-value" id="eco-pressure">—</span></div>
+                    <div class="eco-stat"><span class="eco-stat-label">creations</span><span class="eco-stat-value" id="eco-creations">—</span></div>
+                </div>
+            </div>
         </aside>
 
         <!-- Center — Tabbed Content -->
@@ -50,6 +63,8 @@
                 <button class="tab" data-tab="knowledge">Knowledge</button>
                 <button class="tab" data-tab="code">Code</button>
                 <button class="tab" data-tab="reports">Reports</button>
+                <button class="tab" data-tab="ecosystem">Ecosystem</button>
+                <button class="tab" data-tab="dialogues">Dialogues</button>
             </nav>
             <div class="tab-content" id="tab-content">
                 <!-- Timeline -->
@@ -123,6 +138,41 @@
                         <div class="empty-state">Select a mission to view reports</div>
                     </div>
                 </section>
+
+                <!-- Ecosystem -->
+                <section id="panel-ecosystem" class="panel">
+                    <div class="panel-controls">
+                        <label class="filter-label">Source:
+                            <select id="eco-source-filter">
+                                <option value="all">All</option>
+                                <option value="child">Child</option>
+                                <option value="kael">Kael</option>
+                                <option value="dialogue">Dialogue</option>
+                                <option value="ecosystem">System</option>
+                            </select>
+                        </label>
+                        <label class="filter-label">Event:
+                            <select id="eco-event-filter">
+                                <option value="all">All</option>
+                                <option value="created">Created</option>
+                                <option value="inner_thought">Thought</option>
+                                <option value="solo_think">Solo Think</option>
+                                <option value="guardian">Guardian</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div id="ecosystem-content" class="panel-body">
+                        <div id="eco-summary-cards" class="eco-summary-row"></div>
+                        <div id="eco-feed" class="eco-feed"></div>
+                    </div>
+                </section>
+
+                <!-- Dialogues -->
+                <section id="panel-dialogues" class="panel">
+                    <div id="dialogues-content" class="panel-body">
+                        <div class="empty-state">Loading dialogues...</div>
+                    </div>
+                </section>
             </div>
         </main>
 
@@ -143,6 +193,22 @@
                 <div class="qa-input-row">
                     <input type="text" id="qa-input" placeholder="Ask about this item..." autocomplete="off">
                     <button id="qa-send" class="qa-send-btn">Ask</button>
+                </div>
+            </div>
+            <div id="chat-panel" class="qa-panel" style="display:none">
+                <div id="chat-messages" class="qa-messages"></div>
+                <div class="chat-input-row">
+                    <select id="chat-sender" class="chat-select">
+                        <option value="william">William</option>
+                        <option value="claude">Claude</option>
+                    </select>
+                    <select id="chat-recipient" class="chat-select">
+                        <option value="child">Child</option>
+                        <option value="kael">Kael</option>
+                        <option value="both">Both</option>
+                    </select>
+                    <input type="text" id="chat-input" placeholder="Send a message..." autocomplete="off">
+                    <button id="chat-send" class="qa-send-btn">Send</button>
                 </div>
             </div>
         </aside>

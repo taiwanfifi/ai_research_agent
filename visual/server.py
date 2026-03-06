@@ -10,8 +10,11 @@ import json
 import os
 import re
 import glob
+import time
+import threading
 import urllib.request
 from http.server import HTTPServer, SimpleHTTPRequestHandler
+from socketserver import ThreadingMixIn
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -22,6 +25,11 @@ from urllib.parse import unquote
 VISUAL_DIR = Path(__file__).resolve().parent
 DEFAULT_MISSIONS = VISUAL_DIR.parent / "missions"
 STATIC_DIR = VISUAL_DIR / "static"
+
+# Ecosystem paths
+KAEL_DIR = VISUAL_DIR.parent.parent / "kael_william"
+CHILD_DIR = VISUAL_DIR.parent.parent / "consciousness_probe" / "child"
+CHILD_MEMORY_DIR = CHILD_DIR / "mind_v2_memory"
 
 
 def _read_json(path):
@@ -307,6 +315,125 @@ def _get_timeline(missions_dir, mission_id):
 
 
 # ---------------------------------------------------------------------------
+# Ecosystem data helpers
+# ---------------------------------------------------------------------------
+
+def _read_jsonl_tail(path, n=80):
+    """Read last N lines of a JSONL file, return list of dicts."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        entries = []
+        for line in lines[-n:]:
+            line = line.strip()
+            if line:
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+        return entries
+    except Exception:
+        return []
+
+
+def _get_ecosystem_stats():
+    """Aggregate ecosystem stats: child memory, kael memory, pressure, valence."""
+    stats = {"child": {}, "kael": {}, "system": {}}
+
+    # Child memory counts
+    for mem_type in ("core_memory", "working_memory", "episodic_memory"):
+        data = _read_json(CHILD_MEMORY_DIR / f"{mem_type}.json")
+        if isinstance(data, list):
+            stats["child"][mem_type.replace("_memory", "")] = len(data)
+        elif isinstance(data, dict):
+            stats["child"][mem_type.replace("_memory", "")] = len(data.get("entries", data.get("memories", [])))
+
+    # Child pressure & valence
+    pressure = _read_json(CHILD_MEMORY_DIR / "pressure_state.json")
+    if pressure:
+        stats["child"]["pressure"] = pressure.get("multiplier", pressure.get("pressure", 1.0))
+    valence = _read_json(CHILD_MEMORY_DIR / "valence.json")
+    if valence:
+        stats["child"]["valence"] = valence.get("current", valence.get("valence", 0))
+
+    # Child creations count
+    creations_dir = CHILD_MEMORY_DIR / "creations"
+    if creations_dir.is_dir():
+        stats["child"]["creations"] = len([f for f in creations_dir.iterdir() if f.is_file()])
+
+    # Kael memory
+    kael_mem = _read_json(KAEL_DIR / "kael_memory.json")
+    if kael_mem:
+        stats["kael"]["core"] = len(kael_mem.get("core", []))
+        stats["kael"]["thoughts"] = len(kael_mem.get("thoughts", []))
+        stats["kael"]["observations"] = len(kael_mem.get("child_observations", []))
+
+    # System: check if ecosystem is running (log file modified in last 60s)
+    log_path = KAEL_DIR / "ecosystem_log.jsonl"
+    if log_path.exists():
+        age = time.time() - log_path.stat().st_mtime
+        stats["system"]["live"] = age < 120
+        stats["system"]["log_age_s"] = round(age, 1)
+    else:
+        stats["system"]["live"] = False
+
+    return stats
+
+
+def _read_dialogues(n=10):
+    """Read last N dialogue exchanges from dialogues.jsonl."""
+    return _read_jsonl_tail(KAEL_DIR / "dialogues.jsonl", n)
+
+
+def _get_child_creation(name):
+    """Read a child creation file by name."""
+    safe_name = Path(name).name
+    return _read_text(CHILD_MEMORY_DIR / "creations" / safe_name)
+
+
+def _send_ecosystem_message(data):
+    """Write a message to mailbox.json or from_claude.json."""
+    sender = data.get("sender", "william")
+    message = data.get("message", "")
+    to = data.get("to", "child")
+    if not message:
+        return False
+
+    entry = {
+        "from": sender,
+        "to": to,
+        "message": message,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+    if sender == "claude":
+        target = KAEL_DIR / "from_claude.json"
+    else:
+        target = KAEL_DIR / "mailbox.json"
+
+    try:
+        existing = _read_json(target) or []
+        if not isinstance(existing, list):
+            existing = []
+        existing.append(entry)
+        with open(target, "w", encoding="utf-8") as f:
+            json.dump(existing, f, ensure_ascii=False, indent=2)
+
+        # Also log to ecosystem log
+        log_entry = {
+            "timestamp": entry["timestamp"],
+            "source": sender,
+            "event": "message_sent",
+            "content": f"[to {to}] {message[:100]}",
+        }
+        with open(KAEL_DIR / "ecosystem_log.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+        return True
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
 # HTTP Handler
 # ---------------------------------------------------------------------------
 
@@ -389,12 +516,21 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         (r"^/api/mission/([^/]+)/timeline$", "_api_timeline"),
         (r"^/api/mission/([^/]+)/workspace$", "_api_workspace_files"),
         (r"^/api/mission/([^/]+)/workspace/(.+)$", "_api_workspace_file"),
+        # Ecosystem routes
+        (r"^/api/ecosystem/feed$", "_api_ecosystem_feed"),
+        (r"^/api/ecosystem/stats$", "_api_ecosystem_stats"),
+        (r"^/api/ecosystem/dialogues$", "_api_ecosystem_dialogues"),
+        (r"^/api/ecosystem/creation/(.+)$", "_api_ecosystem_creation"),
+        (r"^/api/ecosystem/to-claude$", "_api_ecosystem_to_claude"),
+        (r"^/api/ecosystem/sse$", "_api_ecosystem_sse"),
     ]
 
     def do_POST(self):
         path = unquote(self.path.split("?")[0])
         if path == "/api/qa":
             self._api_qa()
+        elif path == "/api/ecosystem/send":
+            self._api_ecosystem_send()
         else:
             self._json_response({"error": "Not found"}, 404)
 
@@ -520,6 +656,84 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             else:
                 self._json_response({"path": filepath, "content": content})
 
+    # --- Ecosystem API handlers ---
+
+    def _api_ecosystem_feed(self):
+        entries = _read_jsonl_tail(KAEL_DIR / "ecosystem_log.jsonl", 80)
+        self._json_response(entries)
+
+    def _api_ecosystem_stats(self):
+        self._json_response(_get_ecosystem_stats())
+
+    def _api_ecosystem_dialogues(self):
+        self._json_response(_read_dialogues(10))
+
+    def _api_ecosystem_creation(self, name):
+        content = _get_child_creation(name)
+        if content is None:
+            self._json_response({"error": "Creation not found"}, 404)
+        else:
+            self._json_response({"name": name, "content": content})
+
+    def _api_ecosystem_to_claude(self):
+        data = _read_json(KAEL_DIR / "to_claude.json")
+        self._json_response(data or [])
+
+    def _api_ecosystem_sse(self):
+        """SSE stream tailing ecosystem_log.jsonl."""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+
+        log_path = KAEL_DIR / "ecosystem_log.jsonl"
+        try:
+            if log_path.exists():
+                last_size = log_path.stat().st_size
+            else:
+                last_size = 0
+
+            # Send initial keepalive
+            self.wfile.write(b"event: connected\ndata: ok\n\n")
+            self.wfile.flush()
+
+            while True:
+                time.sleep(2)
+                if not log_path.exists():
+                    continue
+                current_size = log_path.stat().st_size
+                if current_size > last_size:
+                    with open(log_path, "r", encoding="utf-8") as f:
+                        f.seek(last_size)
+                        new_data = f.read()
+                    last_size = current_size
+                    for line in new_data.strip().split("\n"):
+                        line = line.strip()
+                        if line:
+                            self.wfile.write(f"data: {line}\n\n".encode("utf-8"))
+                    self.wfile.flush()
+                elif current_size < last_size:
+                    # File was truncated/rotated
+                    last_size = current_size
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def _api_ecosystem_send(self):
+        """Handle sending messages to ecosystem entities."""
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            data = json.loads(body)
+            ok = _send_ecosystem_message(data)
+            if ok:
+                self._json_response({"status": "sent"})
+            else:
+                self._json_response({"error": "Failed to send"}, 400)
+        except Exception as e:
+            self._json_response({"error": str(e)}, 500)
+
     def _api_qa(self):
         """Handle Q&A questions via LLM."""
         try:
@@ -556,7 +770,10 @@ def main():
     missions_dir = Path(args.missions) if args.missions else DEFAULT_MISSIONS
     DashboardHandler.missions_dir = missions_dir
 
-    server = HTTPServer(("0.0.0.0", args.port), DashboardHandler)
+    class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+        daemon_threads = True
+
+    server = ThreadedHTTPServer(("0.0.0.0", args.port), DashboardHandler)
     print(f"Dashboard server starting on http://localhost:{args.port}")
     print(f"Reading missions from: {missions_dir}")
     print(f"Serving static files from: {STATIC_DIR}")
