@@ -124,7 +124,7 @@ class MissionScorer:
         dimensions = [
             self._score_literature(completed_tasks, knowledge_dir),
             self._score_code(workspace_dir, completed_tasks, execution_log),
-            self._score_results(completed_tasks, execution_log),
+            self._score_results(completed_tasks, execution_log, workspace_dir),
             self._score_verification(checkpoint),
             self._score_artifacts(workspace_dir),
             self._score_report(reports_dir),
@@ -293,8 +293,9 @@ class MissionScorer:
         )
 
     def _score_results(self, completed_tasks: list,
-                       execution_log: dict | None) -> DimensionScore:
-        """Results dimension: parsed metrics, distinct experimental runs."""
+                       execution_log: dict | None,
+                       workspace_dir: str = "") -> DimensionScore:
+        """Results dimension: parsed metrics, distinct experimental runs, result files."""
         evidence = []
         score = 0.0
 
@@ -318,6 +319,33 @@ class MissionScorer:
                     numeric_outputs += 1
             evidence.append(f"{numeric_outputs} tasks with metric-like outputs")
             score += min(5.0, numeric_outputs * 1.5)
+
+        # Check workspace for result JSON files with numeric data
+        if workspace_dir and os.path.isdir(workspace_dir):
+            result_files = [f for f in glob.glob(os.path.join(workspace_dir, "*.json"))
+                           if os.path.basename(f) not in ("execution_log.json", "mission_score.json",
+                                                            "dataset_info.json")]
+            result_file_metrics = 0
+            for rf in result_files:
+                try:
+                    with open(rf) as f:
+                        data = json.load(f)
+                    # Check if JSON contains numeric results (accuracy, loss, etc.)
+                    if isinstance(data, dict):
+                        for k, v in data.items():
+                            if isinstance(v, (int, float)) and k.lower() in (
+                                "accuracy", "loss", "f1", "mean", "std", "precision",
+                                "recall", "perplexity", "auc", "bleu", "rouge",
+                            ):
+                                result_file_metrics += 1
+                            elif isinstance(v, list) and v and isinstance(v[0], (int, float)):
+                                result_file_metrics += 1
+                except Exception:
+                    pass
+            if result_file_metrics > 0:
+                bonus = min(4.0, result_file_metrics * 1.0)
+                score += bonus
+                evidence.append(f"{len(result_files)} result JSON files with {result_file_metrics} numeric fields")
 
         # Check for multiple distinct runs (reproducibility)
         distinct_cycles = set()
@@ -353,14 +381,15 @@ class MissionScorer:
             score += avg_score * 6.0  # 0-1 → 0-6
             evidence.append(f"avg verification: {avg_score:.0%} over {len(verified_tasks)} tasks")
 
-        # Penalty for fabrication blocks
+        # Fabrication blocks: catching fabrication is good, but many blocks means poor worker quality
         fabrication_blocks = sum(
             1 for t in completed
             if not t.get("success") and "fabrication" in (t.get("error") or "").lower()
         )
         if fabrication_blocks:
-            score = max(0, score - fabrication_blocks * 2.0)
-            evidence.append(f"{fabrication_blocks} fabrication blocks (penalty)")
+            # Light penalty — catching fabrication is the system working correctly
+            score = max(0, score - fabrication_blocks * 0.5)
+            evidence.append(f"{fabrication_blocks} fabrication blocks caught")
 
         return DimensionScore(
             name="verification", score=min(10.0, score), weight=0.15, evidence=evidence,

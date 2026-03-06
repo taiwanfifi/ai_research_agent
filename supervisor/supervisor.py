@@ -466,11 +466,11 @@ class Supervisor:
                 print(f"  [Supervisor] Interim report saved")
 
             elif action_type in ("search_more", "explore"):
-                task_desc = action.get("task", self.direction)
+                task_desc = self._pop_queue_task("explorer") or action.get("task", self.direction)
                 self._dispatch_worker("explorer", task_desc)
 
             elif action_type in ("implement", "write_code"):
-                task_desc = action.get("task", f"Implement: {self.direction}")
+                task_desc = self._pop_queue_task("coder") or action.get("task", f"Implement: {self.direction}")
                 self._dispatch_worker("coder", task_desc)
 
             elif action_type == "fix_code":
@@ -479,12 +479,12 @@ class Supervisor:
                 self._dispatch_worker("coder", task_desc)
 
             elif action_type in ("benchmark", "evaluate", "review"):
-                task_desc = action.get("task", f"Evaluate results for: {self.direction}")
+                task_desc = self._pop_queue_task("reviewer") or action.get("task", f"Evaluate results for: {self.direction}")
                 self._dispatch_worker("reviewer", task_desc)
 
             elif action_type == "improve":
                 worker = action.get("worker", "coder")
-                task_desc = action.get("task", f"Improve implementation for: {self.direction}")
+                task_desc = self._pop_queue_task(worker) or action.get("task", f"Improve implementation for: {self.direction}")
                 self._dispatch_worker(worker, task_desc)
 
             elif action_type == "replan":
@@ -1019,6 +1019,25 @@ Respond with ONLY JSON:
             return {"action": "search_more", "task": self.direction, "reason": "fallback"}
         return {"action": "done", "reason": "reflection failed, ending gracefully"}
 
+    def _pop_queue_task(self, worker_name: str) -> str:
+        """Pop the next matching task from the planner's queue for this worker.
+        Respects priority ordering. Returns the task description, or empty string if no match."""
+        best_idx = None
+        best_priority = float('inf')
+        for i, t in enumerate(self.task_queue):
+            if t.get("worker") == worker_name:
+                pri = t.get("priority", 999)
+                if pri < best_priority:
+                    best_priority = pri
+                    best_idx = i
+        if best_idx is not None:
+            task = self.task_queue.pop(best_idx)
+            desc = task.get("task", "")
+            if desc:
+                print(f"  [Supervisor] Using planned task from queue (priority {best_priority})")
+            return desc
+        return ""
+
     # ── Worker dispatch ──────────────────────────────────────────────
 
     def _dispatch_worker(self, worker_name: str, task_desc: str):
@@ -1084,9 +1103,10 @@ Respond with ONLY JSON:
             reasoning = result.get("pushback_reasoning", "")
             print(f"  [Supervisor] ⚡ {worker_name} pushed back: {reasoning[:150]}")
             # Store as insight — pushbacks are valuable signal
-            self._add_insight(
+            self.insight_dag.add(
+                cycle=self.cycle, worker=worker_name,
+                task=task_desc, success=False,
                 content=f"PUSHBACK from {worker_name}: {reasoning}",
-                worker=worker_name, success=False,
             )
             result_entry = {
                 "worker": worker_name, "task": task_desc,

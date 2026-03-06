@@ -77,15 +77,27 @@ Respond with ONLY a JSON array of tasks:
 - **coder**: Writes and runs Python code. Has pip_install, write_file, read_file, run_python_code. MUST save all code to workspace with write_file. MUST produce runnable .py files.
 - **reviewer**: Runs benchmarks, evaluates code. Has run_python_code, write_file, read_file. MUST produce quantitative metrics (accuracy, loss, time, etc.) and save results to workspace.
 
+## Task Type Awareness
+- **Classification tasks** (sentiment, NLI, topic): Coder MUST use `AutoModelForSequenceClassification`, NOT `AutoModelForCausalLM`. Specify this in the task description!
+- **Generation tasks** (summarization, translation): Coder uses `AutoModelForCausalLM`
+- When writing coder tasks for classification, explicitly state: "Use AutoModelForSequenceClassification with num_labels=N"
+- **ALL training/fine-tuning tasks**: Add "Force CPU (os.environ['CUDA_VISIBLE_DEVICES']=''), do NOT use MPS" to the task description
+
 ## Planning Rules
 1. **Max 2 explorer tasks** — one broad search, one deep dive. Do NOT waste cycles on repeated searches.
-2. **Coder tasks MUST be specific**: "Implement X using Y library, save as Z.py" not just "implement the algorithm"
-3. **Coder tasks MUST specify expected outputs**: "Save code as lora_finetune.py, run training for N epochs, save loss_curve.png"
-4. **Reviewer tasks MUST specify metrics**: "Measure accuracy, F1, inference time; save results as results.json and comparison_chart.png"
-5. **5-8 tasks is ideal** — distribute as: 1-2 explorer, 2-3 coder, 1-2 reviewer
-6. **Order by dependency** — explorer first, then coder, then reviewer
-7. **Each task description must be self-contained** — a worker should understand what to do without seeing other tasks
-8. The adaptive supervisor will add more tasks as needed, so don't over-plan
+2. **Coder tasks MUST be atomic** — ONE file, ONE responsibility per task. Examples:
+   - GOOD: "Write model definition in lora_model.py with LoRA layer class"
+   - GOOD: "Write training script train.py that imports lora_model and trains 3 epochs on SST-2"
+   - GOOD: "Run train.py with rank=8,16,32 and save results to results.json"
+   - BAD: "Implement LoRA, train it, benchmark it, and plot results" (too many things!)
+3. **Coder tasks MUST specify the output filename**: "Save as X.py" or "Edit function Y in X.py"
+4. **Separate writing code from running experiments** — one task writes the script, another runs it
+5. **Reviewer tasks MUST specify metrics**: "Measure accuracy, F1, inference time; save results as results.json and comparison_chart.png"
+6. **6-10 tasks is ideal** — distribute as: 1-2 explorer, 3-5 coder, 1-2 reviewer
+7. **Order by dependency** — explorer first, then coder (write → run → plot), then reviewer
+8. **Each task description must be self-contained** — a worker should understand what to do without seeing other tasks
+9. The adaptive supervisor will add more tasks as needed, so don't over-plan
+10. **Coder training tasks MUST use small subsets first** — e.g. "use first 2000 samples, 1-2 epochs" to verify code works, then scale up
 """
 
         response = self.llm.chat([
@@ -96,10 +108,33 @@ Respond with ONLY a JSON array of tasks:
         content = response["choices"][0]["message"]["content"]
         json_match = re.search(r'\[[\s\S]*\]', content)
         if not json_match:
-            return [{"worker": "explorer", "task": goal, "priority": 1, "depends_on": []}]
+            return self._default_plan(goal)
 
         try:
             tasks = json.loads(json_match.group())
+            # Guard: if planner returns too few tasks, expand with default structure
+            if len(tasks) < 3:
+                return self._default_plan(goal)
             return tasks
         except json.JSONDecodeError:
-            return [{"worker": "explorer", "task": goal, "priority": 1, "depends_on": []}]
+            return self._default_plan(goal)
+
+    def _default_plan(self, goal: str) -> list[dict]:
+        """Fallback plan when LLM planner fails or returns too few tasks."""
+        return [
+            {"worker": "explorer", "task": f"Search for 3+ academic papers relevant to: {goal}. "
+             "Output paper titles, authors, citations, arXiv IDs, key contributions.",
+             "priority": 1, "depends_on": []},
+            {"worker": "coder", "task": f"Write the core implementation script for: {goal}. "
+             "Save as experiment.py. Focus on model setup and data loading only.",
+             "priority": 2, "depends_on": []},
+            {"worker": "coder", "task": f"Run experiment.py, collect metrics, save results. "
+             "If errors occur, fix them. Print results as 'metric_name: value'.",
+             "priority": 3, "depends_on": []},
+            {"worker": "coder", "task": "Generate comparison plots from results. "
+             "Save as comparison_plot.png with English labels.",
+             "priority": 4, "depends_on": []},
+            {"worker": "reviewer", "task": f"Evaluate the results for: {goal}. "
+             "Run the code independently, verify metrics, check reproducibility.",
+             "priority": 5, "depends_on": []},
+        ]

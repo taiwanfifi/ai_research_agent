@@ -359,6 +359,8 @@ Examples:
                         help="Validation mode: keyword (legacy), llm_full (all 3 judge calls, default), "
                              "llm_critical (judge Call 1 only), exec_first (judge Call 3 only), "
                              "hybrid (structured JSON + judge fallback)")
+    parser.add_argument("--no-monologue", action="store_true",
+                        help="Disable inner monologue (worker pre-reflection)")
     parser.add_argument("--status", "-s", action="store_true", help="Show system status")
     parser.add_argument("--interactive", "-i", action="store_true", help="Interactive mode")
     parser.add_argument("--max-cycles", type=int, default=12, help="Max supervisor cycles (default: 12)")
@@ -470,6 +472,11 @@ Examples:
     validation_mode = getattr(args, 'validation_mode', 'keyword') or 'keyword'
     system = build_system(ctx, manager, pipeline_mode=pipeline_mode,
                           validation_mode=validation_mode)
+
+    # Disable inner monologue if requested (for A/B testing)
+    if getattr(args, 'no_monologue', False):
+        for w in system["supervisor"].workers.values():
+            w.enable_monologue = False
 
     if args.report:
         report = system["supervisor"]._generate_report()

@@ -71,6 +71,13 @@ class BaseWorker:
             for f in self._recent_failures[-3:]:
                 failure_context += f"- {f}\n"
 
+        # Gather available tools for this worker
+        try:
+            tool_names = [t["function"]["name"] for t in self._get_tools()]
+            tools_str = ", ".join(tool_names)
+        except Exception:
+            tools_str = "(unknown)"
+
         prompt = f"""You are the inner voice of a {self.WORKER_NAME} agent. Before executing a task, you must reflect.
 
 ## Task assigned to you
@@ -79,6 +86,9 @@ class BaseWorker:
 ## Context from supervisor
 {context if context else '(none)'}
 
+## Your tools (you HAVE these capabilities)
+{tools_str}
+
 ## Environment
 {platform_info}
 {workspace_info}
@@ -86,9 +96,9 @@ class BaseWorker:
 ## Your reflection process
 Think about:
 1. Is this task clearly defined? What information am I missing?
-2. Is this the right approach given what I know?
-3. Are there risks, impossibilities, or better alternatives?
-4. Given my capabilities as a {self.WORKER_NAME}, can I actually deliver this?
+2. Is the approach correct? (e.g., right model class, right device, right data split)
+3. Are there technical risks given the environment? (e.g., MPS incompatibility, timeout limits)
+4. Do NOT pushback just because a task seems hard — you have tools. Only pushback if the task is fundamentally misguided.
 
 ## Your response (MUST be valid JSON)
 Return ONLY one of:
@@ -379,6 +389,7 @@ If task should not be done:
             output=full_output,
             stdout_parts=stdout_capture,
             tool_calls=tool_calls_log,
+            worker_name=self.WORKER_NAME,
         )
 
         # If LLM call failed, fall back to keyword validation

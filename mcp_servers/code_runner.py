@@ -14,6 +14,7 @@ Workspace scoping:
     bound to a specific workspace directory.
 """
 
+import ast
 import json
 import os
 import signal
@@ -25,8 +26,8 @@ import tempfile
 _DEFAULT_WORKSPACE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "workspace")
 os.makedirs(_DEFAULT_WORKSPACE, exist_ok=True)
 
-# Default timeout: 300s (5 minutes) for GPU workloads
-DEFAULT_TIMEOUT = int(os.environ.get("CODE_TIMEOUT", "300"))
+# Default timeout: 600s (10 minutes) for GPU/CPU training workloads
+DEFAULT_TIMEOUT = int(os.environ.get("CODE_TIMEOUT", "600"))
 
 # Memory limit per subprocess (in bytes). Default 6GB — prevents Mac OOM reboot.
 _MEM_LIMIT_BYTES = int(os.environ.get("CODE_MEM_LIMIT", str(6 * 1024**3)))
@@ -124,10 +125,24 @@ def create_workspace_tools(workspace_dir: str) -> dict:
             content = f.read()
         return {"success": True, "filename": safe_name, "content": content[:5000], "size": len(content)}
 
+    def _list_modules(filename: str) -> dict:
+        """List functions/classes in a file in the scoped workspace."""
+        safe_name = os.path.basename(filename)
+        path = os.path.join(workspace_dir, safe_name)
+        return _list_modules_impl(path, safe_name)
+
+    def _edit_function(filename: str, function_name: str, new_code: str) -> dict:
+        """Replace a function/class in a file in the scoped workspace."""
+        safe_name = os.path.basename(filename)
+        path = os.path.join(workspace_dir, safe_name)
+        return _edit_function_impl(path, safe_name, function_name, new_code)
+
     return {
         "run_python_code": _run_python_code,
         "write_file": _write_file,
         "read_file": _read_file,
+        "list_modules": _list_modules,
+        "edit_function": _edit_function,
     }
 
 
@@ -241,6 +256,150 @@ def detect_hardware() -> dict:
     return HW_ENV
 
 
+def list_modules(filename: str) -> dict:
+    """List all functions/classes in a workspace file with line ranges."""
+    safe_name = os.path.basename(filename)
+    path = os.path.join(_DEFAULT_WORKSPACE, safe_name)
+    return _list_modules_impl(path, safe_name)
+
+
+def edit_function(filename: str, function_name: str, new_code: str) -> dict:
+    """Replace a single function/class in a file using AST, keeping everything else intact."""
+    safe_name = os.path.basename(filename)
+    path = os.path.join(_DEFAULT_WORKSPACE, safe_name)
+    return _edit_function_impl(path, safe_name, function_name, new_code)
+
+
+# ── AST helpers (shared by scoped and unscoped) ───────────────────
+
+def _list_modules_impl(path: str, display_name: str) -> dict:
+    """Parse a Python file and list its top-level functions/classes."""
+    if not os.path.exists(path):
+        return {"success": False, "error": f"File not found: {display_name}"}
+    with open(path) as f:
+        source = f.read()
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as e:
+        return {"success": False, "error": f"SyntaxError: {e}"}
+
+    modules = []
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            args = ", ".join(a.arg for a in node.args.args)
+            modules.append({
+                "name": node.name,
+                "kind": "function",
+                "signature": f"def {node.name}({args})",
+                "lines": f"{node.lineno}-{node.end_lineno}",
+            })
+        elif isinstance(node, ast.ClassDef):
+            methods = [n.name for n in ast.iter_child_nodes(node)
+                       if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+            modules.append({
+                "name": node.name,
+                "kind": "class",
+                "methods": methods,
+                "lines": f"{node.lineno}-{node.end_lineno}",
+            })
+    return {"success": True, "filename": display_name, "modules": modules,
+            "total_lines": len(source.splitlines())}
+
+
+def _edit_function_impl(path: str, display_name: str,
+                        function_name: str, new_code: str) -> dict:
+    """Replace a function or class in-place using AST line ranges."""
+    if not os.path.exists(path):
+        return {"success": False, "error": f"File not found: {display_name}"}
+    with open(path) as f:
+        source = f.read()
+    lines = source.splitlines(keepends=True)
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as e:
+        return {"success": False, "error": f"Cannot parse file: {e}"}
+
+    # Find the target node
+    target = None
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.name == function_name:
+                target = node
+                break
+
+    if target is None:
+        available = [n.name for n in ast.iter_child_nodes(tree)
+                     if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
+        return {"success": False,
+                "error": f"Function/class '{function_name}' not found. Available: {available}"}
+
+    # Validate new_code parses
+    new_code_clean = new_code.rstrip() + "\n"
+    try:
+        ast.parse(new_code_clean)
+    except SyntaxError as e:
+        return {"success": False, "error": f"New code has SyntaxError: {e}"}
+
+    # Replace lines [start-1 : end] with new code
+    start = target.lineno - 1  # 0-indexed
+    end = target.end_lineno     # exclusive
+
+    # Preserve indentation of original function
+    original_indent = ""
+    for ch in lines[start]:
+        if ch in (" ", "\t"):
+            original_indent += ch
+        else:
+            break
+
+    # Re-indent new code to match original
+    new_lines = new_code_clean.splitlines(keepends=True)
+    if new_lines:
+        # Detect indent of first line of new code
+        new_indent = ""
+        for ch in new_lines[0]:
+            if ch in (" ", "\t"):
+                new_indent += ch
+            else:
+                break
+        # Re-indent
+        reindented = []
+        for line in new_lines:
+            if line.strip() == "":
+                reindented.append("\n")
+            elif line.startswith(new_indent):
+                reindented.append(original_indent + line[len(new_indent):])
+            else:
+                reindented.append(line)
+        new_lines = reindented
+
+    result_lines = lines[:start] + new_lines + lines[end:]
+    new_source = "".join(result_lines)
+
+    # Final validation: parse the whole file
+    try:
+        ast.parse(new_source)
+    except SyntaxError as e:
+        return {"success": False,
+                "error": f"Edit would break file syntax: {e}"}
+
+    with open(path, "w") as f:
+        f.write(new_source)
+
+    old_line_count = end - start
+    new_line_count = len(new_lines)
+    return {
+        "success": True,
+        "path": path,
+        "function": function_name,
+        "old_lines": f"{start+1}-{end}",
+        "new_lines": new_line_count,
+        "delta": new_line_count - old_line_count,
+        "size": len(new_source),
+    }
+
+
 # ── Tool 定義 ─────────────────────────────────────────────────────
 TOOLS = [
     {
@@ -309,6 +468,36 @@ TOOLS = [
             "parameters": {"type": "object", "properties": {}},
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_modules",
+            "description": "List all functions and classes in a Python file with their line ranges. Use this before editing to see what's in the file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string", "description": "Python filename to inspect"},
+                },
+                "required": ["filename"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_function",
+            "description": "Replace a single function or class in a Python file, keeping everything else unchanged. Use this instead of write_file when modifying existing code. Safer than rewriting the whole file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string", "description": "Python filename to edit"},
+                    "function_name": {"type": "string", "description": "Name of the function or class to replace"},
+                    "new_code": {"type": "string", "description": "Complete new code for the function/class (including def/class line, docstring, body)"},
+                },
+                "required": ["filename", "function_name", "new_code"],
+            },
+        },
+    },
 ]
 
 TOOL_FUNCTIONS = {
@@ -317,4 +506,6 @@ TOOL_FUNCTIONS = {
     "read_file": read_file,
     "pip_install": pip_install,
     "detect_hardware": detect_hardware,
+    "list_modules": list_modules,
+    "edit_function": edit_function,
 }

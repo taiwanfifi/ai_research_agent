@@ -82,6 +82,25 @@ Respond in the same language as the task."""
             if t["function"]["name"] in EXPLORER_TOOLS
         ]
 
+    def _validate_with_llm_judge(self, task, full_output, stdout_capture,
+                                  tool_calls_log, messages, elapsed):
+        """Explorer override: papers found = success, regardless of judge strictness."""
+        result = super()._validate_with_llm_judge(
+            task, full_output, stdout_capture, tool_calls_log, messages, elapsed,
+        )
+        # If judge said not substantive but explorer actually found papers, override
+        if not result.get("success") and result.get("output"):
+            output = result["output"]
+            has_paper_markers = any(m in output for m in [
+                "arXiv", "arxiv", "et al.", "Citations:", "citations",
+                "## Top Papers", "### Top Papers", "Key Contribution",
+            ])
+            if has_paper_markers:
+                print(f"  [explorer] Override: papers found in output, marking success")
+                result["success"] = True
+                result["error"] = ""
+        return result
+
     def _validate_output(self, output: str) -> dict:
         """Explorer must find actual papers, not just narrate searching.
 

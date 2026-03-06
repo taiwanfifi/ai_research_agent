@@ -30,7 +30,8 @@ class LLMJudge:
 
     def evaluate_worker_output(self, task: str, output: str,
                                 stdout_parts: list[str] = None,
-                                tool_calls: list[dict] = None) -> dict:
+                                tool_calls: list[dict] = None,
+                                worker_name: str = "") -> dict:
         """
         Evaluate a worker's output semantically.
 
@@ -84,7 +85,17 @@ class LLMJudge:
 
         system_prompt = "Evaluate research output. Return ONLY valid JSON. Any language/domain."
 
+        # Worker-specific evaluation guidance
+        worker_guide = ""
+        if worker_name == "explorer":
+            worker_guide = "Worker role: EXPLORER (searches papers/repos). Judge by: papers found, relevance, citations. Do NOT penalize for missing code/results — that's not this worker's job."
+        elif worker_name == "coder":
+            worker_guide = "Worker role: CODER (writes & runs code). Judge by: code quality, execution success, results produced."
+        elif worker_name == "reviewer":
+            worker_guide = "Worker role: REVIEWER (benchmarks/evaluates). Judge by: metrics measured, reproducibility, rigor."
+
         user_prompt = f"""Task: {task[:200]}
+{worker_guide}
 
 Output (last 2000 chars):
 {output_truncated}
@@ -97,7 +108,7 @@ stdout:
 Return JSON:
 {{"is_substantive":bool,"task_completed":bool,"metrics":[{{"name":"x","value":1.0,"type":"result|hyperparameter"}}],"claims_vs_stdout":[{{"claim":"x","status":"verified|contradicted|unverified","actual":null}}],"summary":"2 sentences","quality_concerns":["..."],"has_code_output":bool,"has_papers":bool}}
 
-Rules: is_substantive=false if only procedural ("Let me.."). metrics type: result=measured output, hyperparameter=config. claims_vs_stdout: compare output claims vs stdout numbers. quality_concerns: missing seeds/baselines/error bars."""
+Rules: is_substantive=false if only procedural ("Let me.."). metrics type: result=measured output, hyperparameter=config. claims_vs_stdout: compare output claims vs stdout numbers. quality_concerns: missing seeds/baselines/error bars. IMPORTANT: evaluate based on the worker's specific role, not the overall mission goal."""
 
         result = self._call_llm_json(system_prompt, user_prompt)
 

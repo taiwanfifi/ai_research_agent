@@ -16,7 +16,8 @@ from config import HW_ENV_SUMMARY
 from workers.base_worker import BaseWorker
 from supervisor.research_standards import get_coder_rules
 
-CODER_TOOLS = {"run_python_code", "write_file", "read_file", "pip_install", "detect_hardware"}
+CODER_TOOLS = {"run_python_code", "write_file", "read_file", "pip_install", "detect_hardware",
+               "list_modules", "edit_function"}
 
 
 class CoderWorker(BaseWorker):
@@ -30,6 +31,8 @@ class CoderWorker(BaseWorker):
 ## Capabilities
 - run_python_code: Execute Python code (any installed package — torch, numpy, etc.)
 - write_file / read_file: File I/O in workspace directory
+- list_modules: See all functions/classes in a file with line ranges (use before editing!)
+- edit_function: Replace a SINGLE function/class in a file without touching the rest
 - pip_install: Install packages if needed (e.g. "torch numpy matplotlib")
 - detect_hardware: Check GPU / device availability at runtime
 
@@ -45,6 +48,12 @@ class CoderWorker(BaseWorker):
 6. If there are errors, analyze and fix them
 7. Report results with metrics (time, memory, device used)
 8. **ALWAYS use write_file to save your final code** — do NOT just run code without saving it
+
+## CRITICAL: Editing Existing Files
+- **NEVER rewrite a whole file to fix a bug or change one function**
+- Instead: list_modules(filename) → read the function → edit_function(filename, func_name, new_code)
+- write_file is for NEW files only. edit_function is for modifying EXISTING files.
+- If you rewrite a 200-line file to change 5 lines, you will likely break something.
 
 ## CRITICAL: Figure Generation Rules
 - **NEVER use plt.show()** — it blocks execution and opens a window
@@ -62,12 +71,27 @@ class CoderWorker(BaseWorker):
   plt.close()
   ```
 
-## GPU-Aware Guidelines
-- Always auto-detect device: `device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")`
+## CRITICAL: Match Model Class to Task Type
+- **Classification** (sentiment, NLI, topic): Use `AutoModelForSequenceClassification`, NOT `AutoModelForCausalLM`
+  - GPT-2/DistilGPT-2 classification: `AutoModelForSequenceClassification.from_pretrained("distilgpt2", num_labels=2)`
+  - Set `model.config.pad_token_id = tokenizer.pad_token_id`
+  - Loss and labels are handled automatically by the model
+- **Text generation** (summarization, translation, chat): Use `AutoModelForCausalLM`
+- **NEVER use causal LM loss (next-token prediction) to train a classifier** — it will produce 0.0 accuracy
+- When using PEFT/LoRA with classification: `task_type=TaskType.SEQ_CLS` in LoraConfig
+
+## GPU/Device Guidelines
+- **PEFT/LoRA fine-tuning**: ALWAYS use CPU. MPS DOES NOT WORK (crashes with NoneType errors). Add this at the TOP of every training script:
+  ```python
+  import os
+  os.environ["CUDA_VISIBLE_DEVICES"] = ""
+  device = torch.device("cpu")
+  ```
+  Do NOT auto-detect device for fine-tuning. Do NOT try MPS. It WILL fail.
+- **Inference/non-training**: Auto-detect: `device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")`
 - Move tensors to device: `.to(device)`
 - For benchmarks, include warmup runs before timing
 - Report which device was actually used
-- If MPS has compatibility issues with an op, fallback to CPU and note it
 - For large models, check memory before loading (`torch.cuda.mem_get_info()` or estimate)
 
 ## Structured Output
@@ -124,7 +148,28 @@ Respond in the same language as the task."""
                             reason=f"coder write (task context)",
                         )
                 except Exception:
-                    pass  # Best-effort
+                    pass
+            elif func_name == "edit_function":
+                try:
+                    parsed = json.loads(result) if isinstance(result, str) else result
+                    if parsed.get("success"):
+                        filename = func_args.get("filename", "")
+                        fn_name = func_args.get("function_name", "")
+                        # Re-read the full file to track the new version
+                        import os
+                        ws = getattr(self, '_workspace_dir', None)
+                        if ws:
+                            fpath = os.path.join(ws, os.path.basename(filename))
+                        else:
+                            fpath = parsed.get("path", "")
+                        if fpath and os.path.exists(fpath):
+                            with open(fpath) as f:
+                                code_store.track_write(
+                                    filename, f.read(),
+                                    reason=f"edit_function: {fn_name}",
+                                )
+                except Exception:
+                    pass
             return result
 
         return tracked_executor
