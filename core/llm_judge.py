@@ -108,7 +108,7 @@ stdout:
 Return JSON:
 {{"is_substantive":bool,"task_completed":bool,"metrics":[{{"name":"x","value":1.0,"type":"result|hyperparameter"}}],"claims_vs_stdout":[{{"claim":"x","status":"verified|contradicted|unverified","actual":null}}],"summary":"2 sentences","quality_concerns":["..."],"has_code_output":bool,"has_papers":bool}}
 
-Rules: is_substantive=false if only procedural ("Let me.."). metrics type: result=measured output, hyperparameter=config. claims_vs_stdout: compare output claims vs stdout numbers. quality_concerns: missing seeds/baselines/error bars. IMPORTANT: evaluate based on the worker's specific role, not the overall mission goal."""
+Rules: is_substantive=false if only procedural ("Let me.."). metrics type: result=measured output, hyperparameter=config. claims_vs_stdout: ONLY check NUMERICAL claims (accuracy, loss, F1, sample counts) against stdout. Do NOT flag descriptive statements about data format, column names, or code structure as contradicted — those are not fabrication. quality_concerns: missing seeds/baselines/error bars. IMPORTANT: evaluate based on the worker's specific role, not the overall mission goal."""
 
         result = self._call_llm_json(system_prompt, user_prompt)
 

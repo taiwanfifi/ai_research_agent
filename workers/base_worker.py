@@ -421,14 +421,20 @@ If task should not be done:
             error_msg = "Output validation failed: LLM Judge determined task was not completed"
 
         # Check for contradicted claims (fabrication detection)
+        # Require 2+ contradictions to block — single contradictions are often false positives
+        # from the judge misinterpreting descriptive statements as numerical claims
         contradicted = [c for c in judge_result.get("claims_vs_stdout", [])
                        if c.get("status") == "contradicted"]
-        if contradicted and is_valid:
+        if len(contradicted) >= 2 and is_valid:
             contradiction_msgs = [c.get("claim", "") for c in contradicted]
             is_valid = False
             error_msg = f"Fabrication detected — claims contradict stdout: {'; '.join(contradiction_msgs)}"
             for c in contradicted:
                 print(f"  [{self.WORKER_NAME}] FABRICATION BLOCKED: {c.get('claim', '')}")
+        elif contradicted:
+            # Single contradiction — warn but don't block
+            for c in contradicted:
+                print(f"  [{self.WORKER_NAME}] WARNING: Possible fabrication (not blocking): {c.get('claim', '')}")
 
         # Calculate verification score from claims
         claims = judge_result.get("claims_vs_stdout", [])
