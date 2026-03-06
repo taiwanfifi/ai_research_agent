@@ -34,6 +34,10 @@ _SKIP_LABELS = {
     "weight_decay", "momentum", "beta", "beta1", "beta2", "gamma",
     "temperature", "top_k", "top_p", "beam", "beams",
     "samples", "batches", "train", "validation", "val", "test",
+    # File-related labels (prevent matching "py: 6499" from file listings)
+    "py", "json", "png", "jpg", "csv", "txt", "md", "yaml", "yml",
+    "bytes", "kb", "mb", "gb", "lines", "files", "dirs", "code_store",
+    "__pycache__", "pycache",
 }
 
 

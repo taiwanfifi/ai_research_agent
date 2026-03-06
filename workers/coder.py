@@ -123,10 +123,12 @@ This ensures metrics are automatically captured by the execution log.
 ## Time Budget
 - Code execution has a 600s (10min) timeout. Plan accordingly:
   - Training ONE model on 2000 samples for 2 epochs ≈ 200-400s on CPU
+  - **ALWAYS use dataset subsets** — `dataset.select(range(2000))` for training. Full datasets WILL timeout.
   - Do NOT try to train multiple configurations in a single run_python_code call
   - If training 3 seeds, do them ONE AT A TIME in separate run_python_code calls
   - Always add timing: `import time; t0=time.time()` ... `print(f"training_time: {{time.time()-t0:.1f}}s")`
-  - NEVER launch subprocesses (subprocess.run/Popen) inside run_python_code — it bypasses the timeout and creates orphan processes. Run the code directly.
+  - **NEVER use subprocess.run/Popen/call** — it is BLOCKED at the system level and will return an error. Paste training code directly into run_python_code.
+  - **NEVER use exec(open(...).read())** — paste the code directly.
 
 ## Code Quality
 - Write modular, testable code with clear function boundaries
