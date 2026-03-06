@@ -106,6 +106,7 @@ This ensures metrics are automatically captured by the execution log.
   - Do NOT try to train multiple configurations in a single run_python_code call
   - If training 3 seeds, do them ONE AT A TIME in separate run_python_code calls
   - Always add timing: `import time; t0=time.time()` ... `print(f"training_time: {{time.time()-t0:.1f}}s")`
+  - NEVER launch subprocesses (subprocess.run/Popen) inside run_python_code — it bypasses the timeout and creates orphan processes. Run the code directly.
 
 ## Code Quality
 - Write modular, testable code with clear function boundaries

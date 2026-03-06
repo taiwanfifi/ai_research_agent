@@ -55,6 +55,8 @@ def create_workspace_tools(workspace_dir: str) -> dict:
         Uses process groups to ensure all child processes are cleaned up."""
         if timeout is None:
             timeout = DEFAULT_TIMEOUT
+        # Enforce max timeout — LLM sometimes tries to set 1800s+
+        timeout = min(timeout, DEFAULT_TIMEOUT)
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".py", dir=workspace_dir, delete=False
         ) as f:
@@ -153,6 +155,8 @@ def run_python_code(code: str, timeout: int = None) -> dict:
     Uses process groups to ensure all child processes are cleaned up."""
     if timeout is None:
         timeout = DEFAULT_TIMEOUT
+    # Enforce max timeout — LLM sometimes tries to set 1800s+
+    timeout = min(timeout, DEFAULT_TIMEOUT)
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", dir=_DEFAULT_WORKSPACE, delete=False) as f:
         f.write(code)
