@@ -182,6 +182,8 @@ class Supervisor:
         self._consecutive_failures: dict = {}  # worker_name → count
         # Flow monitor advisories from last cycle (avoids double-call)
         self._last_advisories: list = []
+        # Friction buffer: accumulated failure diagnoses (Round 13)
+        self._friction_buffer: list = []
 
         # ── Memory Distillation (DAG-based) ──────────────────────
         # Structured insight graph with relevance scoring
@@ -705,6 +707,132 @@ class Supervisor:
                 failures=self._consecutive_failures,
             )
 
+    def _format_friction_buffer(self) -> str:
+        """Format recent failure diagnoses for supervisor prompt. Max 3 items."""
+        if not hasattr(self, '_friction_buffer') or not self._friction_buffer:
+            return "  (none)"
+        # Show last 3 friction items
+        items = self._friction_buffer[-3:]
+        lines = []
+        for f in items:
+            lines.append(f"- [{f['trigger']}] {f['root_cause'][:80]}")
+            if f.get('better_action'):
+                lines.append(f"  → Better: {f['better_action'][:80]}")
+        return "\n".join(lines)
+
+    # ══════════════════════════════════════════════════════════════════
+    #  FAILURE ANALYSIS (Round 13)
+    # ══════════════════════════════════════════════════════════════════
+
+    def _analyze_and_adapt_failure(self, worker_name: str, task_desc: str,
+                                    result: dict, result_entry: dict):
+        """Diagnose failure and inject corrective action into task queue."""
+        from core.failure_analyzer import analyze_failure
+
+        # Gather prior failures for anti-retry
+        prior = [
+            t.get("failure_analysis", {}) for t in self.completed_tasks
+            if not t.get("success") and t.get("failure_analysis")
+        ]
+
+        # Extract stderr/stdout from result
+        stderr = ""
+        stdout = ""
+        output = result.get("output", "")
+        error = result.get("error", "")
+        # Try to get stderr from tool calls
+        for tc in (result.get("tool_calls") or []):
+            if tc.get("name") == "run_python_code":
+                stderr = tc.get("stderr", "")
+                break
+
+        # Get envelope if available
+        envelopes = result.get("decision_envelopes", [])
+        envelope = envelopes[-1] if envelopes else None
+
+        try:
+            analysis = analyze_failure(
+                llm=self.llm,
+                task=task_desc,
+                worker=worker_name,
+                error=error or output[:500],
+                stderr=stderr,
+                stdout=stdout,
+                envelope=envelope,
+                prior_failures=prior[-3:],  # last 3 failures
+            )
+        except Exception as e:
+            print(f"  [FailureAnalyzer] Analysis failed: {e}")
+            return
+
+        # Store analysis on the result entry
+        result_entry["failure_analysis"] = analysis.to_dict()
+        print(f"  [FailureAnalyzer] {analysis.failure_class}: {analysis.root_cause[:80]}")
+        print(f"  [FailureAnalyzer] → {analysis.next_action}"
+              + (f": {analysis.modification[:80]}" if analysis.modification else ""))
+
+        # ── Inject corrective action into queue ──────────────
+        if analysis.next_action == "retry_modified" and analysis.modification:
+            modified_task = f"{task_desc}\n\nIMPORTANT FIX: {analysis.modification}"
+            self.task_queue.insert(0, {
+                "worker": worker_name,
+                "task": modified_task,
+                "priority": 0,  # highest priority
+                "depends_on": [],
+                "status": "pending",
+                "source": "failure_analyzer",
+            })
+            print(f"  [FailureAnalyzer] Queued modified retry")
+
+        elif analysis.next_action == "decompose" and analysis.subtasks:
+            for i, subtask in enumerate(analysis.subtasks):
+                self.task_queue.insert(i, {
+                    "worker": worker_name,
+                    "task": subtask,
+                    "priority": i,
+                    "depends_on": [],
+                    "status": "pending",
+                    "source": "failure_analyzer",
+                })
+            print(f"  [FailureAnalyzer] Decomposed into {len(analysis.subtasks)} subtasks")
+
+        elif analysis.next_action == "switch_worker":
+            alt_worker = "coder" if worker_name != "coder" else "reviewer"
+            self.task_queue.insert(0, {
+                "worker": alt_worker,
+                "task": task_desc,
+                "priority": 0,
+                "depends_on": [],
+                "status": "pending",
+                "source": "failure_analyzer",
+            })
+            print(f"  [FailureAnalyzer] Switched to {alt_worker}")
+
+        elif analysis.next_action == "patch_env":
+            if analysis.modification:
+                self.task_queue.insert(0, {
+                    "worker": "coder",
+                    "task": f"Fix environment: {analysis.modification}",
+                    "priority": 0,
+                    "depends_on": [],
+                    "status": "pending",
+                    "source": "failure_analyzer",
+                })
+                print(f"  [FailureAnalyzer] Queued env patch")
+
+        elif analysis.next_action == "abort_branch":
+            print(f"  [FailureAnalyzer] Branch aborted — will not retry this task")
+
+        # Add to mission friction buffer
+        if not hasattr(self, '_friction_buffer'):
+            self._friction_buffer = []
+        self._friction_buffer.append({
+            "trigger": analysis.failure_class,
+            "task": task_desc[:100],
+            "root_cause": analysis.root_cause,
+            "better_action": analysis.modification or analysis.next_action,
+        })
+
     # ══════════════════════════════════════════════════════════════════
     #  MEMORY DISTILLATION SYSTEM
     # ══════════════════════════════════════════════════════════════════
@@ -997,6 +1125,9 @@ Write the working_memory as bullet points. Be concise but complete."""
 ## Recent Errors
 {error_summary or "  (none)"}
 
+## Active Friction (failure diagnoses — adapt your strategy)
+{self._format_friction_buffer()}
+
 ## Knowledge Base
 - Total: {knowledge_stats['total_items']} items
 - By category: {json.dumps(knowledge_stats['by_category'], default=str)}
@@ -1156,9 +1287,11 @@ Respond with ONLY JSON:
             self.completed_tasks.append(result_entry)
             return
 
-        # Transfer tool call log for downstream checks
+        # Transfer tool call log and decision envelopes for downstream checks
         if hasattr(worker, '_last_tool_calls'):
             result["tool_calls"] = worker._last_tool_calls
+        if hasattr(worker, '_last_envelopes'):
+            result["decision_envelopes"] = [e.to_dict() for e in worker._last_envelopes]
 
         result_entry = {
             "worker": worker_name,
@@ -1174,33 +1307,28 @@ Respond with ONLY JSON:
                 print(f"  [Supervisor] LOW VERIFICATION: {worker_name} score={verification_score:.0%}")
                 result_entry["low_verification"] = True
 
-        # ── Step 4: Extract insight from result ────────────────
+        # ── Step 4: Handle success or failure ────────────────
         if result.get("success"):
             print(f"  [Supervisor] ✓ {worker_name} completed successfully")
             self.event_bus.emit(EventType.TASK_COMPLETED, {
                 "worker": worker_name, "task": task_desc,
             }, source="supervisor")
-        else:
-            error_msg = f"[{worker_name}] {task_desc[:60]}: {result.get('error', 'unknown')}"
-            self.errors.append(error_msg)
-            print(f"  [Supervisor] ✗ {worker_name} failed: {result.get('error', '')[:100]}")
-            # Feed failure info to worker's inner monologue for future tasks
-            if not hasattr(worker, '_recent_failures'):
-                worker._recent_failures = []
-            worker._recent_failures.append(
-                f"Task '{task_desc[:80]}' failed: {result.get('error', 'unknown')[:120]}"
-            )
-
-        # Track consecutive failures for smarter pivoting
-        if result.get("success"):
             self._consecutive_failures[worker_name] = 0
         else:
+            error_msg = result.get('error', 'unknown')
+            self.errors.append(f"[{worker_name}] {task_desc[:60]}: {error_msg}")
+            print(f"  [Supervisor] ✗ {worker_name} failed: {(error_msg or '')[:100]}")
+
+            # ── FailureAnalyzer: diagnose and adapt ──────────
+            self._analyze_and_adapt_failure(
+                worker_name, task_desc, result, result_entry
+            )
+
             self._consecutive_failures[worker_name] = \
                 self._consecutive_failures.get(worker_name, 0) + 1
             fail_count = self._consecutive_failures[worker_name]
             if fail_count >= 2:
-                print(f"  [Supervisor] WARNING: {worker_name} has failed {fail_count} times consecutively!")
-                print(f"  [Supervisor] Will escalate on next cycle — trying different approach")
+                print(f"  [Supervisor] WARNING: {worker_name} has failed {fail_count}x — will try different approach")
 
         # Always extract insight, whether success or failure
         self._extract_insight(worker_name, task_desc, result)

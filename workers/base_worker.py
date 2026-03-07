@@ -184,6 +184,13 @@ If task should not be done:
             print(f"  [{self.WORKER_NAME}] Task modified by inner monologue")
 
         full_prompt = self.SYSTEM_PROMPT
+
+        # Inject Decision Protocol for workers with risky tools
+        from core.decision_envelope import DECISION_PROMPT, RISKY_TOOLS
+        worker_tools = {t["function"]["name"] for t in self._get_tools()}
+        if worker_tools & RISKY_TOOLS:
+            full_prompt += f"\n\n{DECISION_PROMPT}"
+
         if context:
             full_prompt += f"\n\n## Context from supervisor:\n{context}"
 
@@ -193,9 +200,15 @@ If task should not be done:
         output_parts = []
         tool_results_parts = []  # Capture tool results separately
         tool_calls_log = []  # Track actual tool calls made
+        decision_envelopes = []  # Track structured decisions
 
         def on_response(turn, content, latency):
             output_parts.append(content)
+            # Parse decision envelope from assistant text
+            from core.decision_envelope import parse_envelope
+            envelope = parse_envelope(content)
+            if envelope:
+                decision_envelopes.append(envelope)
             print(f"  [{self.WORKER_NAME}] Turn {turn} ({latency:.0f}ms): {content[:100]}...")
 
         def on_tool_call(name, args):
@@ -298,8 +311,9 @@ If task should not be done:
             if tool_results_parts and len(full_output) < 500:
                 full_output += "\n\n## Tool Execution Results\n" + "\n\n".join(tool_results_parts[-5:])
 
-            # Store tool calls log on self BEFORE validation so subclass validators can use it
+            # Store tool calls log and decision envelopes for downstream use
             self._last_tool_calls = tool_calls_log
+            self._last_envelopes = decision_envelopes
 
             # ── Validation: LLM Judge or Keyword-based ──────────────
             if self.llm_judge and self.validation_mode in ("llm_full", "llm_critical", "hybrid"):
