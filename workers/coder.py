@@ -101,6 +101,11 @@ class CoderWorker(BaseWorker):
   )
   ```
 
+## CRITICAL: Optimizer Compatibility
+- **NEVER use bitsandbytes optimizers** (adamw_bnb_8bit, etc.) — crashes with 'NoneType' error on Mac/MPS
+- **ALWAYS use standard optimizers**: `optim="adamw_torch"` in TrainingArguments
+- If you see 'cadam32bit_grad_fp32' error → change optimizer to adamw_torch
+
 ## GPU/Device Guidelines
 - **PEFT/LoRA fine-tuning**: ALWAYS use CPU. MPS DOES NOT WORK (crashes with NoneType errors). Add this at the TOP of every training script:
   ```python
