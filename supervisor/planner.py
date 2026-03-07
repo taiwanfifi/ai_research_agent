@@ -92,7 +92,7 @@ Respond with ONLY a JSON array of tasks:
    - BAD: "Implement LoRA, train it, benchmark it, and plot results" (too many things!)
 3. **Coder tasks MUST specify the output filename**: "Save as X.py" or "Edit function Y in X.py"
 4. **Each coder task MUST produce output** — "Write training script AND run it, print accuracy/loss results". Never create a task that only writes a file without executing it. The coder should write_file + run_python_code in the SAME task.
-5. **Reviewer tasks MUST specify metrics**: "Measure accuracy, F1, inference time; save results as results.json and comparison_chart.png"
+5. **Reviewer tasks MUST specify metrics and figures**: "Load results, create comparison_chart.png (bar chart with error bars), training_loss.png (loss curves), and save analysis_summary.json". Always request at least 2 figures.
 6. **6-10 tasks is ideal** — distribute as: 1-2 explorer, 3-5 coder, 1-2 reviewer
 7. **Order by dependency** — explorer first, then coder (write → run → plot), then reviewer
 8. **Each task description must be self-contained** — a worker should understand what to do without seeing other tasks
@@ -134,10 +134,11 @@ Respond with ONLY a JSON array of tasks:
             {"worker": "coder", "task": f"Run additional experiments/configurations for: {goal}. "
              "If errors occur, fix AND re-run. Must produce real metrics.",
              "priority": 3, "depends_on": []},
-            {"worker": "coder", "task": "Generate comparison plots from results. "
-             "Save as comparison_plot.png with English labels.",
+            {"worker": "reviewer", "task": f"Load all result JSON files, compute statistics (mean, std, t-test), "
+             "create comparison_chart.png (bar chart with error bars) and training_loss.png (loss curves). "
+             "Save analysis_summary.json with all computed statistics.",
              "priority": 4, "depends_on": []},
-            {"worker": "reviewer", "task": f"Evaluate the results for: {goal}. "
-             "Run the code independently, verify metrics, check reproducibility.",
+            {"worker": "reviewer", "task": f"Verify results for: {goal}. "
+             "Cross-check metrics, run inference benchmark if applicable, verify reproducibility.",
              "priority": 5, "depends_on": []},
         ]
