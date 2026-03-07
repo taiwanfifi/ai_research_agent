@@ -113,6 +113,14 @@ class EvolutionStore:
             created_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
         )
         self.learnings.append(learning)
+
+        # Auto-prune: keep max 30 learnings, drop lowest confidence
+        MAX_LEARNINGS = 30
+        if len(self.learnings) > MAX_LEARNINGS:
+            # Sort by confidence (descending), keep top MAX_LEARNINGS
+            self.learnings.sort(key=lambda l: l.confidence, reverse=True)
+            self.learnings = self.learnings[:MAX_LEARNINGS]
+
         self._save()
         return learning.id
 

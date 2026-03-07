@@ -1,1364 +1,173 @@
 {
   "learnings": [
     {
-      "id": "L343d8caa",
+      "id": "L01",
       "type": "pitfall",
       "category": "training",
-      "pattern": "CRITICAL: When fine-tuning a causal LM (GPT-2, DistilGPT-2) for CLASSIFICATION tasks (sentiment, NLI, etc.), you MUST use AutoModelForSequenceClassification, NOT AutoModelForCausalLM. Causal LM predicts next tokens and will give 0.0 accuracy on classification. Always match model class to task type.",
-      "context": "Any task involving classification (sentiment analysis, topic classification, NLI) with decoder-only models like GPT-2",
+      "pattern": "CRITICAL: For CLASSIFICATION tasks, use AutoModelForSequenceClassification, NOT AutoModelForCausalLM. Causal LM gives 0.0 accuracy. With PEFT: task_type=TaskType.SEQ_CLS.",
+      "context": "Any sentiment/NLI/topic classification",
       "confidence": 1.0,
       "mission_ids": [
-        "mission_20260306_150649_implement_lora_fine_tuning"
+        "multiple"
       ],
       "times_applied": 0,
       "times_helpful": 0,
-      "created_at": "2026-03-06T15:51:32.957173"
+      "created_at": "2026-03-06T15:51:32"
     },
     {
-      "id": "L251c10ba",
-      "type": "pitfall",
-      "category": "training",
-      "pattern": "GPT-2 requires explicit pad_token_id configuration when using MPS/GPU, otherwise batch_size > 1 causes runtime errors",
-      "context": "When fine-tuning GPT-2 on Apple MPS or CUDA with batch sizes greater than 1",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260304_103545_implement_and_evaluate_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-04T11:20:55"
-    },
-    {
-      "id": "Ld562d30f",
-      "type": "tool_preference",
-      "category": "tools",
-      "pattern": "The peft library provides reliable LoRA implementation with minimal boilerplate compared to manual implementation",
-      "context": "When implementing LoRA for transformer models like GPT-2",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260304_103545_implement_and_evaluate_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-04T11:20:55"
-    },
-    {
-      "id": "Lf1c410a7",
-      "type": "parameter_guidance",
-      "category": "training",
-      "pattern": "3 epochs with full SST-2 training data (2K+ samples) and multiple seeds provides statistically meaningful accuracy comparisons",
-      "context": "When benchmarking LoRA vs full fine-tuning on text classification",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260304_103545_implement_and_evaluate_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-04T11:20:55"
-    },
-    {
-      "id": "L047373b4",
-      "type": "strategy_success",
-      "category": "evaluation",
-      "pattern": "Creating a streamlined run_metrics.py script is more reliable than complex experiment runners for initial validation",
-      "context": "When testing training scripts before running full experiments",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260304_103545_implement_and_evaluate_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-04T11:20:55"
-    },
-    {
-      "id": "L24c2926d",
-      "type": "strategy_failure",
-      "category": "data",
-      "pattern": "Using too few training samples leads to unreliable metrics; full SST-2 dataset (2K+ samples) was required for valid experiments",
-      "context": "When measuring model accuracy differences between fine-tuning approaches",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260304_103545_implement_and_evaluate_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-04T11:20:55"
-    },
-    {
-      "id": "L2d3b9611",
-      "type": "pitfall",
-      "category": "training",
-      "pattern": "Large batch size (4) with gradient accumulation (4) combined with long sequence length (128) causes memory/timeout issues on Apple Silicon MPS, requiring reduction to batch_size=1 and seq_len=64",
-      "context": "When running LoRA fine-tuning on DistilGPT-2 with MPS backend",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260304_180853_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-04T18:51:35"
-    },
-    {
-      "id": "L0cbf6a57",
-      "type": "strategy_failure",
-      "category": "tools",
-      "pattern": "Loading models directly to MPS can cause 224s+ timeouts; need to load to CPU first then move to MPS or use CPU device initially",
-      "context": "When initializing DistilGPT-2 on Apple Silicon devices",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260304_180853_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-04T18:51:35"
-    },
-    {
-      "id": "Le9d9265d",
-      "type": "tool_preference",
-      "category": "tools",
-      "pattern": "HuggingFace PEFT library provides reliable LoRA implementation compared to custom implementations, reducing debugging overhead",
-      "context": "For parameter-efficient fine-tuning tasks",
-      "confidence": 0.65,
-      "mission_ids": [
-        "mission_20260304_180853_implement_and_benchmark_lora",
-        "mission_20260304_185141_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-04T18:51:35"
-    },
-    {
-      "id": "Lfe39d96f",
-      "type": "strategy_failure",
-      "category": "evaluation",
-      "pattern": "Generating synthetic/perplexity data without running actual training leads to invalid benchmarks; must execute training runs before creating comparison plots",
-      "context": "When creating evaluation visualizations",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260304_180853_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-04T18:51:35"
-    },
-    {
-      "id": "L3f65a839",
-      "type": "parameter_guidance",
-      "category": "training",
-      "pattern": "DistilGPT-2 with LoRA requires conservative hyperparameters: small batch sizes, shorter sequences, and reduced gradient accumulation steps to fit in memory-constrained environments",
-      "context": "When fine-tuning on consumer hardware with limited VRAM",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260304_180853_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-04T18:51:35"
-    },
-    {
-      "id": "L06588aad",
-      "type": "strategy_success",
-      "category": "architecture",
-      "pattern": "Using HuggingFace PEFT library for LoRA implementation on DistilGPT-2 is straightforward and functional - the training pipeline completed successfully with r=16, α=32",
-      "context": "When implementing LoRA PEFT on small transformer models like DistilGPT-2",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260304_185141_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-04T19:46:50"
-    },
-    {
-      "id": "L8b1e48d6",
-      "type": "strategy_failure",
-      "category": "evaluation",
-      "pattern": "Evaluation and visualization tasks failed while training succeeded, indicating evaluation code had issues (possibly dataset loading, memory, or code bugs) separate from the training pipeline",
-      "context": "When running post-training evaluation tasks on SST-2 dataset",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260304_185141_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-04T19:46:50"
-    },
-    {
-      "id": "L30b515a5",
-      "type": "pitfall",
-      "category": "evaluation",
-      "pattern": "Full dataset evaluation (67k samples) may cause memory or runtime issues - smaller sample evaluations worked while full dataset runs failed",
-      "context": "When evaluating on SST-2 benchmark with large sample counts",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260304_185141_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-04T19:46:50"
-    },
-    {
-      "id": "L51738a9e",
-      "type": "parameter_guidance",
-      "category": "training",
-      "pattern": "LoRA hyperparameters r=16 (rank) and α=32 (scaling) worked well for DistilGPT-2 text classification",
-      "context": "When fine-tuning DistilGPT-2 with LoRA for classification tasks",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260304_185141_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-04T19:46:50"
-    },
-    {
-      "id": "Le673eaf9",
-      "type": "strategy_success",
-      "category": "training",
-      "pattern": "Switch from Causal Language Modeling to Sequence Classification head for sentiment classification tasks like SST-2 to reduce training time and improve efficiency.",
-      "context": "When fine-tuning for classification tasks, using CLS head instead of causal LM is faster and more appropriate",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260305_002622_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-05T00:51:43"
-    },
-    {
-      "id": "Le63d9bbd",
-      "type": "pitfall",
-      "category": "data",
-      "pattern": "Starting with too small dataset (20 samples) resulted in poor accuracy (62%), requiring subsequent increase to 2K-5K samples to reach 90-95% accuracy.",
-      "context": "Dataset size below 1K samples is insufficient for meaningful fine-tuning results on sentiment classification",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260305_002622_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-05T00:51:43"
-    },
-    {
-      "id": "L4a39ef89",
-      "type": "strategy_success",
-      "category": "training",
-      "pattern": "Reduce epochs and switch model head to prevent timeout on resource-constrained hardware like Apple M3 Max MPS.",
-      "context": "When training on consumer hardware with time constraints, start with 1-2 epochs and adjust as needed",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260305_002622_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-05T00:51:43"
-    },
-    {
-      "id": "L95164e32",
-      "type": "parameter_guidance",
-      "category": "architecture",
-      "pattern": "LoRA with r=16 rank provided effective parameter-efficient fine-tuning for DistilGPT-2 on downstream classification.",
-      "context": "Rank 16 offers good balance between efficiency and performance for small-to-medium language models",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260305_002622_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-05T00:51:43"
-    },
-    {
-      "id": "Lfe674011",
-      "type": "tool_preference",
-      "category": "tools",
-      "pattern": "HuggingFace PEFT library provides reliable LoRA implementation with clean abstractions for parameter-efficient fine-tuning.",
-      "context": "PEFT library abstracts LoRA config complexity and integrates well with Transformers and Trainer",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260305_002622_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-05T00:51:43"
-    },
-    {
-      "id": "L7da1bbb6",
-      "type": "pitfall",
-      "category": "data",
-      "pattern": "SST-2 test set has no labels (all zeros). Always use the validation set for evaluation, not the test set.",
-      "context": "When fine-tuning on SST-2, the test set is unlabeled so evaluation fails. Must load validation set for metrics.",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260305_013136_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-05T01:48:27"
-    },
-    {
-      "id": "L13012562",
-      "type": "pitfall",
-      "category": "training",
-      "pattern": "Too frequent evaluation with small eval_steps causes timeouts. eval_steps=500 with 67k samples = ~134 evaluations per epoch, severely slowing training.",
-      "context": "When training on large datasets with small batch_size=1, eval_steps must be much larger (5000+) to avoid evaluation overhead.",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260305_013136_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-05T01:48:27"
-    },
-    {
-      "id": "Laa50a8ac",
-      "type": "parameter_guidance",
-      "category": "training",
-      "pattern": "batch_size=1 is too slow for practical fine-tuning. Use larger batch sizes (8-16) to reduce per-epoch time.",
-      "context": "When fine-tuning on 67k+ samples, batch_size=1 makes training prohibitively slow.",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260305_013136_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-05T01:48:27"
-    },
-    {
-      "id": "L67e50368",
-      "type": "strategy_failure",
-      "category": "evaluation",
-      "pattern": "Starting training without verifying evaluation data availability causes incomplete benchmarks.",
-      "context": "Always verify validation labels exist before starting training runs to ensure metrics can be captured.",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260305_013136_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-05T01:48:27"
-    },
-    {
-      "id": "L246d7b83",
-      "type": "strategy_success",
-      "category": "architecture",
-      "pattern": "LoRA PEFT implementation for DistilGPT-2 works correctly with HF Trainer and target_modules=['c_attn', 'c_proj'].",
-      "context": "When implementing LoRA on DistilGPT-2, targeting attention weights (c_attn, c_proj) is the correct approach.",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260305_013136_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-05T01:48:27"
-    },
-    {
-      "id": "Lc789fcac",
-      "type": "pitfall",
-      "category": "tools",
-      "pattern": "MPS (Metal Performance Shaders) on Apple Silicon has runtime incompatibilities with HuggingFace Trainer - always have CPU fallback ready",
-      "context": "When running training on Apple M-series Macs, the MPS backend may fail mid-training requiring restart with CPU",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260305_020851_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-05T02:49:51"
-    },
-    {
-      "id": "L68d6c217",
-      "type": "strategy_success",
-      "category": "training",
-      "pattern": "LoRA PEFT enables parameter-efficient fine-tuning with only ~2.8% of trainable params (1.2M vs 44M), making it viable for limited GPU memory",
-      "context": "When comparing LoRA vs full fine-tuning on DistilGPT-2 with 44M parameters",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260305_020851_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-05T02:49:52"
-    },
-    {
-      "id": "Lb6108634",
-      "type": "parameter_guidance",
-      "category": "training",
-      "pattern": "LoRA hyperparameters r=16, alpha=32, dropout=0.1 combined with learning rate 3e-4 and 3 epochs provided stable convergence on SST-2",
-      "context": "When fine-tuning DistilGPT-2 on sentiment classification with the PEFT library",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260305_020851_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-05T02:49:52"
-    },
-    {
-      "id": "L444112f1",
-      "type": "strategy_failure",
-      "category": "evaluation",
-      "pattern": "Small dataset sizes (1,000 samples from SST-2) lead to high variance (±3.35% std) making statistical comparison between methods unreliable",
-      "context": "When benchmarking LoRA vs full fine-tuning with constrained dataset sizes",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260305_020851_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-05T02:49:52"
-    },
-    {
-      "id": "L1ce7b6c2",
-      "type": "tool_preference",
-      "category": "tools",
-      "pattern": "HuggingFace PEFT library provides well-tested LoRA implementation with native Trainer integration, eliminating need for custom LoRA logic",
-      "context": "When implementing parameter-efficient fine-tuning on HuggingFace models",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260305_020851_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-05T02:49:52"
-    },
-    {
-      "id": "Lfec39859",
-      "type": "strategy_failure",
-      "category": "tools",
-      "pattern": "The LoRA fine-tuning script creation failed twice, indicating insufficient initial planning before coding. Both attempts resulted in scripts with issues causing hangs.",
-      "context": "When implementing LoRA fine-tuning scripts for small language models",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260305_034509_lora_distilgpt_2_rank"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-05T04:07:46"
-    },
-    {
-      "id": "L599601e5",
-      "type": "pitfall",
-      "category": "training",
-      "pattern": "Scripts without robust error handling and debugging mechanisms can hang indefinitely, making it difficult to diagnose failures during fine-tuning.",
-      "context": "When running LoRA fine-tuning experiments that may encounter runtime issues",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260305_034509_lora_distilgpt_2_rank"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-05T04:07:46"
-    },
-    {
-      "id": "Ld035dc3d",
-      "type": "tool_preference",
-      "category": "tools",
-      "pattern": "PEFT library is the appropriate tool for implementing LoRA fine-tuning on DistilGPT-2, providing configurable rank r parameter support.",
-      "context": "When setting up LoRA experiments for parameter-efficient fine-tuning",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260305_034509_lora_distilgpt_2_rank"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-05T04:07:46"
-    },
-    {
-      "id": "Lc1ec6687",
-      "type": "parameter_guidance",
-      "category": "training",
-      "pattern": "Starting with rank r=8 is a reasonable baseline for LoRA experiments on small language models like DistilGPT-2, allowing for meaningful rank comparison studies.",
-      "context": "When selecting LoRA rank hyperparameters for small model fine-tuning",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260305_034509_lora_distilgpt_2_rank"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-05T04:07:46"
-    },
-    {
-      "id": "L294ff0b6",
-      "type": "pitfall",
-      "category": "data",
-      "pattern": "SST-2 dataset uses 'dev' split, not 'validation'. Always check available splits with dataset['train'].unique('split') or dataset.keys() before accessing data.",
-      "context": "When loading HuggingFace datasets for evaluation, verify split names exist by printing dataset.keys() or checking dataset['train'].unique('split')",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_123406_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T12:55:50"
-    },
-    {
-      "id": "L64c832c4",
-      "type": "tool_preference",
-      "category": "tools",
-      "pattern": "Use AutoTokenizer and AutoModelForCausalLM instead of specific model tokenizers (DistilGPT2Tokenizer) to avoid import errors.",
-      "context": "When loading pretrained models for LoRA fine-tuning",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_123406_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T12:55:50"
-    },
-    {
-      "id": "L7d0b46b3",
-      "type": "strategy_failure",
-      "category": "evaluation",
-      "pattern": "Writing results only at script end causes data loss on truncation. Add immediate file writing after each evaluation epoch or checkpoint.",
-      "context": "When running long training experiments that may produce truncated output",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_123406_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T12:55:50"
-    },
-    {
-      "id": "L0de3f333",
-      "type": "pitfall",
-      "category": "code",
-      "pattern": "Incomplete function modifications (e.g., changing dataset split but not updating all code paths) cause NoneType errors during Trainer initialization.",
-      "context": "When refactoring code - ensure all dependent code paths are updated together",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_123406_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T12:55:50"
-    },
-    {
-      "id": "L_mps_peft_01",
+      "id": "L02",
       "type": "pitfall",
       "category": "environment",
-      "pattern": "HuggingFace Trainer + PEFT LoRA frequently fails on Apple MPS backend with NoneType errors. Always fallback to CPU immediately when MPS fails.",
-      "context": "When using PEFT/LoRA with HuggingFace Trainer on Apple Silicon",
-      "confidence": 0.9,
-      "mission_ids": [
-        "mission_20260306_123406_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T13:00:00"
-    },
-    {
-      "id": "L60b5f14d",
-      "type": "tool_preference",
-      "category": "tools",
-      "pattern": "Explorer agents cannot execute code - they can only search and retrieve information, making them unsuitable for tasks requiring validation through execution.",
-      "context": "When using agents for research that requires verifying code functionality or running experiments",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_132618_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T13:51:31"
-    },
-    {
-      "id": "La1b4b202",
-      "type": "pitfall",
-      "category": "training",
-      "pattern": "MPS device detection works during model loading but doesn't automatically enforce CPU at training runtime - explicit device enforcement in training loop is required.",
-      "context": "When running on Apple Silicon with MPS backend where automatic fallback detection exists but training may still attempt MPS",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_132618_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T13:51:31"
-    },
-    {
-      "id": "Le0ac0afb",
-      "type": "parameter_guidance",
-      "category": "architecture",
-      "pattern": "rsLoRA scaling (scaling = learning_rate * sqrt((r + rs_factor * r) / r)) must be explicitly applied for ranks >= 16 to maintain training stability.",
-      "context": "When configuring LoRA with ranks 4 and 16 comparison - rank 16 requires rsLoRA scaling for proper adaptation",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_132618_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T13:51:31"
-    },
-    {
-      "id": "Lb04df700",
-      "type": "tool_preference",
-      "category": "tools",
-      "pattern": "The deprecated `load_metric` from the datasets library should be replaced with `evaluate.load` to avoid import errors.",
-      "context": "When using HuggingFace evaluation metrics in training scripts",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_132618_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T13:51:31"
-    },
-    {
-      "id": "L36c224db",
-      "type": "strategy_success",
-      "category": "strategy",
-      "pattern": "Creating a centralized config.py with all hyperparameters before writing training code enables modular, reproducible experiments and easier debugging.",
-      "context": "When setting up experiments comparing different LoRA ranks or hyperparameter configurations",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_132618_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T13:51:31"
-    },
-    {
-      "id": "L1135488b",
-      "type": "pitfall",
-      "category": "data",
-      "pattern": "Tokenizer return type inconsistency: when return_tensors=None, tokenizer outputs Python lists, not tensors. Calling .tolist() on lists fails with 'list' object has no attribute 'tolist'",
-      "context": "When preparing data for training, tokenizer outputs vary based on return_tensors parameter",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_135854_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T14:27:39"
-    },
-    {
-      "id": "Ld5ebe949",
-      "type": "pitfall",
-      "category": "tools",
-      "pattern": "Use GPT2Tokenizer instead of non-existent DistilGPT2Tokenizer class from transformers",
-      "context": "When importing tokenizer for DistilGPT-2 model",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_135854_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T14:27:39"
-    },
-    {
-      "id": "L62506982",
-      "type": "strategy_failure",
-      "category": "evaluation",
-      "pattern": "Evaluation scripts may trigger 'fabrication detection' errors if they don't properly load and process existing data files",
-      "context": "When writing evaluation scripts that reference data paths created by preparation scripts",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_135854_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T14:27:39"
-    },
-    {
-      "id": "Lebf2ab54",
-      "type": "strategy_success",
-      "category": "tools",
-      "pattern": "Read existing files before creating new ones to understand data formats and avoid mismatches",
-      "context": "Before writing training or evaluation scripts, inspect data preparation outputs",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_135854_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T14:27:39"
-    },
-    {
-      "id": "Le8c551f4",
-      "type": "strategy_failure",
-      "category": "search",
-      "pattern": "Explorer tasks may fail or produce incomplete output if queries are too broad or cut off mid-execution",
-      "context": "When searching for best practices or papers using explorer tool",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_135854_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T14:27:39"
-    },
-    {
-      "id": "L1871b86a",
-      "type": "pitfall",
-      "category": "tools",
-      "pattern": "DistilGPT2Tokenizer does not exist in HuggingFace - must use GPT2Tokenizer instead",
-      "context": "When loading tokenizers for DistilGPT-2 model, the dedicated DistilGPT2Tokenizer class is not available",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_142938_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T15:03:43"
-    },
-    {
-      "id": "Le008df88",
-      "type": "tool_preference",
-      "category": "training",
-      "pattern": "PEFT + HuggingFace Trainer integration on CPU requires setup BEFORE torch imports to avoid compatibility failures",
-      "context": "When integrating PEFT LoraConfig with HF Trainer, CPU fallback configuration must happen before any torch imports",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_142938_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T15:03:43"
-    },
-    {
-      "id": "Le3d5c896",
-      "type": "strategy_failure",
-      "category": "tools",
-      "pattern": "Multiple rewrite attempts failed because files were not being saved - need to verify file persistence after each change",
-      "context": "When fixing integration issues, rewriting the script multiple times without verifying save success led to repeated failures",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_142938_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T15:03:43"
-    },
-    {
-      "id": "L3bdc243d",
-      "type": "pitfall",
-      "category": "training",
-      "pattern": "Data collator and padding token handling are critical integration points that cause PEFT+Trainer failures if misconfigured",
-      "context": "When setting up LoRA fine-tuning with Trainer, the data collator must properly handle padding tokens",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_142938_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T15:03:43"
-    },
-    {
-      "id": "L869763e4",
-      "type": "strategy_success",
-      "category": "architecture",
-      "pattern": "Using PEFT library abstracts away most LoRA implementation details - only LoraConfig with target_modules needed",
-      "context": "When configuring LoRA for small language models like DistilGPT-2, PEFT provides clean abstractions for rank and target module selection",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_142938_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T15:03:43"
-    },
-    {
-      "id": "L0b7d01d9",
-      "type": "strategy_failure",
-      "category": "training",
-      "pattern": "Starting with full SST-2 dataset and multiple epochs causes timeout on CPU with 10-minute budget. Must reduce to 1000 samples and 1 epoch to complete training.",
-      "context": "When training on CPU with limited time budget (10 min) and memory (4GB)",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_150649_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T15:48:02"
-    },
-    {
-      "id": "L55138c0c",
-      "type": "tool_preference",
-      "category": "tools",
-      "pattern": "PEFT library provides reliable LoRA configuration for DistilGPT-2 with configurable rank, alpha, and dropout parameters.",
-      "context": "When setting up LoRA fine-tuning on small transformer models like DistilGPT-2",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_150649_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T15:48:02"
-    },
-    {
-      "id": "L0be2e76a",
-      "type": "tool_preference",
-      "category": "data",
-      "pattern": "HuggingFace datasets library successfully loads and tokenizes SST-2 for sentiment classification tasks.",
-      "context": "When loading standard NLP datasets like SST-2 for text classification",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_150649_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T15:48:02"
-    },
-    {
-      "id": "L7728f6e8",
-      "type": "pitfall",
-      "category": "training",
-      "pattern": "Initial training script implementation failed - device handling and import issues caused failures before timeout.",
-      "context": "When writing training scripts that import from multiple custom modules (load_sst2.py, setup_lora.py)",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_150649_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T15:48:02"
-    },
-    {
-      "id": "L5eae9760",
-      "type": "parameter_guidance",
-      "category": "architecture",
-      "pattern": "For LoRA on DistilGPT-2 sentiment classification, rank 4 vs rank 16 comparison requires keeping other hyperparameters (alpha=32, dropout=0.1) constant while varying only rank.",
-      "context": "When conducting LoRA rank ablation studies on text classification",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_150649_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T15:48:02"
-    },
-    {
-      "id": "L23f3a59e",
-      "type": "parameter_guidance",
-      "category": "training",
-      "pattern": "CRITICAL: Use 'eval_strategy' NOT 'evaluation_strategy' in TrainingArguments — deprecated in transformers >=4.46, removed in 4.50+. Will crash with TypeError. Same applies to save_strategy, logging_strategy.",
-      "context": "Any HuggingFace Trainer script — always use eval_strategy instead of evaluation_strategy",
+      "pattern": "PEFT/LoRA fine-tuning MUST use CPU. MPS crashes with NoneType errors. Set os.environ['CUDA_VISIBLE_DEVICES']='' BEFORE torch import.",
+      "context": "Apple Silicon Mac",
       "confidence": 1.0,
       "mission_ids": [
-        "mission_20260306_164452_implement_lora_fine_tuning"
+        "multiple"
       ],
       "times_applied": 0,
       "times_helpful": 0,
-      "created_at": "2026-03-07T05:10:23"
+      "created_at": "2026-03-06T16:00:00"
     },
     {
-      "id": "L268b879d",
-      "type": "strategy_failure",
-      "category": "data",
-      "pattern": "Using only 500 samples for rank=16 while using 1600 samples for rank=4 created an unfair comparison - results were not comparable due to dataset size mismatch.",
-      "context": "When comparing LoRA ranks, ensure both use identical dataset sizes",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_164452_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T05:10:23"
-    },
-    {
-      "id": "Le824b05f",
-      "type": "strategy_failure",
-      "category": "data",
-      "pattern": "500-sample subsets are too small for stable sentiment classification experiments - high variance in results across seeds.",
-      "context": "When running quick experiments, balance sample size against time constraints but rerun with larger data for valid conclusions",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_164452_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T05:10:23"
-    },
-    {
-      "id": "L9145b40c",
-      "type": "tool_preference",
-      "category": "tools",
-      "pattern": "PEFT library with AutoModelForCausalLM works well for LoRA fine-tuning on GPT-2 models, avoiding need to manually configure LoRA layers.",
-      "context": "When implementing LoRA on causal language models like DistilGPT-2",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260306_164452_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T05:10:23"
-    },
-    {
-      "id": "Ldd4c2238",
+      "id": "L03",
       "type": "pitfall",
-      "category": "architecture",
-      "pattern": "Using DistilBERT tokenizer with GPT-2 model causes mismatch errors - must use GPT2Tokenizer for GPT-based models.",
-      "context": "When preparing tokenizers for GPT-family models",
-      "confidence": 0.5,
+      "category": "training",
+      "pattern": "Use 'eval_strategy' NOT 'evaluation_strategy' in TrainingArguments. Use optim='adamw_torch' NOT bitsandbytes.",
+      "context": "Any HuggingFace Trainer script",
+      "confidence": 1.0,
       "mission_ids": [
-        "mission_20260306_164452_implement_lora_fine_tuning"
+        "multiple"
       ],
       "times_applied": 0,
       "times_helpful": 0,
-      "created_at": "2026-03-07T05:10:23"
+      "created_at": "2026-03-07T07:00:00"
     },
     {
-      "id": "L9d5b7c12",
+      "id": "L04",
       "type": "pitfall",
       "category": "data",
-      "pattern": "Column name mismatch between HuggingFace datasets and local JSON files caused evaluation failures. SST-2 uses 'sentence' but local files used 'text'.",
-      "context": "When converting datasets to local format and loading from different sources (HuggingFace vs local JSON), column names may differ.",
-      "confidence": 0.5,
+      "pattern": "ALWAYS use dataset.select(range(2000)) for training. Full SST-2 (67K) causes 600s timeout. 2000 samples + 2-3 epochs ≈ 60-180s.",
+      "context": "CPU training with timeout",
+      "confidence": 1.0,
       "mission_ids": [
-        "mission_20260307_051742_implement_lora_fine_tuning"
+        "multiple"
       ],
       "times_applied": 0,
       "times_helpful": 0,
-      "created_at": "2026-03-07T05:54:11"
+      "created_at": "2026-03-07T07:30:00"
     },
     {
-      "id": "L028449ba",
-      "type": "strategy_failure",
-      "category": "evaluation",
-      "pattern": "Evaluation script failed to load checkpoints multiple times, blocking metric extraction. The full pipeline was not validated end-to-end before execution.",
-      "context": "When running rank comparison experiments without testing evaluation pipeline in advance.",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_051742_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T05:54:11"
-    },
-    {
-      "id": "L72118fb5",
-      "type": "tool_preference",
-      "category": "tools",
-      "pattern": "PEFT library AutoModelForSequenceClassification had issues with DistilGPT-2. Consider using direct transformers library with LoRA implementation or verify PEFT compatibility first.",
-      "context": "When setting up LoRA fine-tuning on smaller GPT models like DistilGPT-2.",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_051742_implement_lora_fine_tuning"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T05:54:11"
-    },
-    {
-      "id": "L7f063d47",
+      "id": "L05",
       "type": "pitfall",
       "category": "training",
-      "pattern": "Training script execution failed due to environment issues (CUDA_VISIBLE_DEVICES configuration). Ensure runtime environment is properly configured before running experiments.",
-      "context": "When executing training scripts in constrained environments.",
-      "confidence": 0.5,
+      "pattern": "GPT-2 requires: tokenizer.pad_token = tokenizer.eos_token AND model.config.pad_token_id = tokenizer.pad_token_id.",
+      "context": "GPT-2/DistilGPT-2 training",
+      "confidence": 1.0,
       "mission_ids": [
-        "mission_20260307_051742_implement_lora_fine_tuning"
+        "multiple"
       ],
       "times_applied": 0,
       "times_helpful": 0,
-      "created_at": "2026-03-07T05:54:11"
+      "created_at": "2026-03-04T11:20:55"
     },
     {
-      "id": "L9ab016ff",
-      "type": "strategy_success",
-      "category": "search",
-      "pattern": "Explorer successfully found multiple relevant papers on LoRA for sentiment analysis including original LoRA paper, LOFO, and sentiment-specific implementations.",
-      "context": "Literature search tasks completed successfully with comprehensive paper coverage.",
-      "confidence": 0.5,
+      "id": "L06",
+      "type": "tool_preference",
+      "category": "tools",
+      "pattern": "PEFT library: get_peft_model(model, LoraConfig(...)). GPT-2 target_modules: ['c_attn','c_proj']. BERT: ['query','value'].",
+      "context": "LoRA fine-tuning",
+      "confidence": 0.8,
       "mission_ids": [
-        "mission_20260307_051742_implement_lora_fine_tuning"
+        "multiple"
       ],
       "times_applied": 0,
       "times_helpful": 0,
-      "created_at": "2026-03-07T05:54:11"
+      "created_at": "2026-03-04T11:20:55"
     },
     {
-      "id": "L7bdbc488",
+      "id": "L07",
       "type": "pitfall",
       "category": "data",
-      "pattern": "Always validate data integrity immediately after loading - check for invalid labels, missing values, and proper data types before training",
-      "context": "When preparing MRPC dataset, labels were all -1 indicating loading/processing errors that weren't caught until training failed",
-      "confidence": 0.5,
+      "pattern": "SST-2: HuggingFace uses 'sentence' column. Test split has no labels — use validation. AutoTokenizer for DistilGPT-2 (not DistilGPT2Tokenizer).",
+      "context": "SST-2 sentiment classification",
+      "confidence": 0.8,
       "mission_ids": [
-        "mission_20260307_055754_implement_knowledge_distillation_train"
+        "multiple"
       ],
       "times_applied": 0,
       "times_helpful": 0,
-      "created_at": "2026-03-07T06:44:06"
+      "created_at": "2026-03-06T16:00:00"
     },
     {
-      "id": "Ld94c2373",
-      "type": "strategy_success",
-      "category": "training",
-      "pattern": "Implement checkpoint saving with periodic frequency and timeout handling for long training runs to prevent total loss on interruption",
-      "context": "BERT teacher training required multiple restarts; adding checkpointing and timeout handling was critical for completion",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_055754_implement_knowledge_distillation_train"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T06:44:06"
-    },
-    {
-      "id": "L3469bb8b",
-      "type": "pitfall",
+      "id": "L08",
+      "type": "parameter_guidance",
       "category": "evaluation",
-      "pattern": "Benchmark scripts for inference speed need aggressive optimization (smaller batch sizes, fewer samples, warmup runs) to complete within timeout limits",
-      "context": "Measuring inference speed failed repeatedly due to timeouts - needed a faster version with reduced sample sizes",
-      "confidence": 0.5,
+      "pattern": "Use 2-3 seeds (42, 123, 456) and report mean ± std. Single-seed results are not statistically meaningful.",
+      "context": "ML experiment comparison",
+      "confidence": 0.8,
       "mission_ids": [
-        "mission_20260307_055754_implement_knowledge_distillation_train"
+        "multiple"
       ],
       "times_applied": 0,
       "times_helpful": 0,
-      "created_at": "2026-03-07T06:44:06"
+      "created_at": "2026-03-06T16:00:00"
     },
     {
-      "id": "La9925317",
-      "type": "parameter_guidance",
-      "category": "training",
-      "pattern": "Use multiple random seeds (e.g., 42, 123, 456) and report mean/std performance to get reliable accuracy comparisons between teacher, baseline, and distilled student",
-      "context": "When comparing knowledge distillation effectiveness, single-run results can be misleading due to variance",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_055754_implement_knowledge_distillation_train"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T06:44:06"
-    },
-    {
-      "id": "L175f70b3",
-      "type": "strategy_failure",
-      "category": "training",
-      "pattern": "Incomplete experiment pipeline: tasks were initiated but not all executed to completion, leaving no results for evaluation",
-      "context": "When running multi-stage research experiments requiring sequential task completion",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_064539_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T07:07:36"
-    },
-    {
-      "id": "Ld1f99ea8",
-      "type": "pitfall",
-      "category": "training",
-      "pattern": "Training script was incomplete - dataset loading was implemented but actual training loop was missing",
-      "context": "When writing training scripts; always verify full pipeline functionality before attempting experiments",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_064539_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T07:07:36"
-    },
-    {
-      "id": "Lffd33f62",
-      "type": "parameter_guidance",
-      "category": "training",
-      "pattern": "CPU-only training is prohibitively slow for transformer fine-tuning; use GPU or significantly reduce dataset size (e.g., 2000 samples)",
-      "context": "When fine-tuning DistilGPT-2 or similar models on CPU",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_064539_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T07:07:36"
-    },
-    {
-      "id": "Lde2e2a2f",
-      "type": "tool_preference",
-      "category": "tools",
-      "pattern": "PEFT library provides clean abstractions for LoRA implementation on HuggingFace models",
-      "context": "When implementing LoRA fine-tuning on GPT-style models",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_064539_implement_and_benchmark_lora"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T07:07:36"
-    },
-    {
-      "id": "Laccb25c2",
-      "type": "pitfall",
-      "category": "tools",
-      "pattern": "Import errors in training scripts often stem from missing utility functions. Define helper functions like set_seed in shared utility modules before importing them.",
-      "context": "When setting up LoRA training scripts with PEFT, ensure all imported functions are actually defined in the source modules",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_071208_lora_fine_tuning_on"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T07:27:08"
-    },
-    {
-      "id": "L5b16bb18",
-      "type": "strategy_failure",
-      "category": "evaluation",
-      "pattern": "Reviewer tasks that depend on training run results cannot execute before training completes. The result JSON files need to exist before loading them.",
-      "context": "When planning experiment workflows, ensure data generation tasks (training) complete before analysis tasks that depend on that data",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_071208_lora_fine_tuning_on"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T07:27:08"
-    },
-    {
-      "id": "L49f28c26",
+      "id": "L09",
       "type": "strategy_success",
-      "category": "architecture",
-      "pattern": "PEFT library provides clean abstractions for LoRA fine-tuning on GPT-2/DistilGPT-2 with minimal code changes from base model training.",
-      "context": "When implementing LoRA on transformer models for classification, PEFT simplifies the setup significantly",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_071208_lora_fine_tuning_on"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T07:27:08"
-    },
-    {
-      "id": "Lb2f479e7",
-      "type": "tool_preference",
-      "category": "data",
-      "pattern": "Using HuggingFace datasets library for SST-2 provides a standardized, pre-processed format that integrates seamlessly with training pipelines.",
-      "context": "When preparing sentiment classification datasets, the datasets library offers reliable data loading",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_071208_lora_fine_tuning_on"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T07:27:08"
-    },
-    {
-      "id": "Lafb0672a",
-      "type": "parameter_guidance",
       "category": "training",
-      "pattern": "Comparing LoRA ranks (4 vs 16) with multiple seeds (42, 123) enables statistical robustness in accuracy comparisons.",
-      "context": "When evaluating LoRA rank impact on model performance, using multiple random seeds reduces variance in results",
-      "confidence": 0.5,
+      "pattern": "Run training code DIRECTLY in run_python_code. subprocess is BLOCKED. Never use exec(open(...)). Paste code directly.",
+      "context": "Executing training",
+      "confidence": 1.0,
       "mission_ids": [
-        "mission_20260307_071208_lora_fine_tuning_on"
+        "multiple"
       ],
       "times_applied": 0,
       "times_helpful": 0,
-      "created_at": "2026-03-07T07:27:08"
+      "created_at": "2026-03-07T08:00:00"
     },
     {
-      "id": "Ld9b63ac4",
-      "type": "strategy_success",
-      "category": "data",
-      "pattern": "Using a smaller dataset subset (2000 samples) enabled feasible CPU training while still achieving meaningful accuracy comparisons",
-      "context": "When training LoRA on DistilGPT-2 with limited compute resources, subset sampling is necessary",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_073137_lora_fine_tuning_on"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T08:03:43"
-    },
-    {
-      "id": "Lc67dfbf1",
-      "type": "pitfall",
-      "category": "training",
-      "pattern": "Full SST-2 dataset (67k samples) on CPU was prohibitively slow, requiring dataset reduction",
-      "context": "When fine-tuning GPT-2 family models on CPU without GPU acceleration",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_073137_lora_fine_tuning_on"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T08:03:43"
-    },
-    {
-      "id": "Ldfbbb3ee",
-      "type": "parameter_guidance",
-      "category": "architecture",
-      "pattern": "rank=4 and rank=16 achieved nearly identical accuracy (~81.5%), suggesting lower rank may be sufficient for sentiment classification",
-      "context": "When comparing LoRA rank hyperparameters for downstream sentiment tasks",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_073137_lora_fine_tuning_on"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T08:03:43"
-    },
-    {
-      "id": "L25b71c32",
+      "id": "L10",
       "type": "strategy_success",
       "category": "evaluation",
-      "pattern": "Multiple random seeds (seed42, seed123) are needed for reliable accuracy comparisons across configurations",
-      "context": "When comparing hyperparameter settings to account for variance in fine-tuning results",
-      "confidence": 0.5,
+      "pattern": "Save results JSON immediately after training. Print metrics as 'metric_name: value'. Create 2+ figures (comparison chart + loss curves).",
+      "context": "After training runs",
+      "confidence": 0.8,
       "mission_ids": [
-        "mission_20260307_073137_lora_fine_tuning_on"
+        "multiple"
       ],
       "times_applied": 0,
       "times_helpful": 0,
-      "created_at": "2026-03-07T08:03:43"
+      "created_at": "2026-03-07T07:30:00"
     },
     {
-      "id": "L26bb765d",
-      "type": "tool_preference",
-      "category": "tools",
-      "pattern": "Using PEFT library with HuggingFace transformers provides clean LoRA implementation for GPT-2 family models",
-      "context": "When implementing parameter-efficient fine-tuning on GPT-2 variants",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_073137_lora_fine_tuning_on"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T08:03:43"
-    },
-    {
-      "id": "Lba49ba78",
-      "type": "strategy_failure",
-      "category": "training",
-      "pattern": "Using only 2000 samples for quick validation resulted in incomplete experiments - the rank=4 training was truncated and rank=16 failed entirely, preventing valid comparison",
-      "context": "When running ablation studies comparing LoRA ranks, insufficient dataset size or training time leads to unreliable/no results",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_080926_lora_fine_tuning_on"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T08:34:10"
-    },
-    {
-      "id": "Ld79cf5a7",
-      "type": "pitfall",
-      "category": "evaluation",
-      "pattern": "Training scripts need checkpointing and result persistence - when experiments fail or get interrupted, no results are saved for analysis",
-      "context": "When running long training jobs that may timeout or crash, implement periodic saving and explicit result output before completion",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_080926_lora_fine_tuning_on"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T08:34:10"
-    },
-    {
-      "id": "Lafdf17ac",
-      "type": "tool_preference",
-      "category": "tools",
-      "pattern": "The AutoModelForSequenceClassification with peft library successfully loads DistilGPT-2 with LoRA config, indicating this is the correct API approach",
-      "context": "When implementing LoRA fine-tuning on GPT-based models for classification",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_080926_lora_fine_tuning_on"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T08:34:10"
-    },
-    {
-      "id": "La82c1048",
-      "type": "parameter_guidance",
-      "category": "training",
-      "pattern": "Higher LoRA ranks (r=16) may require more training time or different hyperparameters than lower ranks (r=4) - cannot simply swap and expect same behavior",
-      "context": "When comparing LoRA rank ablation studies, each rank may need tuning",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_080926_lora_fine_tuning_on"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T08:34:10"
-    },
-    {
-      "id": "Lf81dd5ac",
-      "type": "strategy_success",
-      "category": "search",
-      "pattern": "Explorer tasks successfully found best practices and papers on LoRA fine-tuning - web search is reliable for gathering background research",
-      "context": "When starting new research missions, the explorer component reliably provides foundational knowledge",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_080926_lora_fine_tuning_on"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T08:34:10"
-    },
-    {
-      "id": "L1cbba492",
-      "type": "parameter_guidance",
-      "category": "training",
-      "pattern": "LoRA rank=4 achieves nearly identical accuracy (83.7%) to rank=16 (83.83%) on SST-2, suggesting lower rank is sufficient for this task",
-      "context": "When fine-tuning DistilGPT-2 on SST-2 sentiment classification, increasing rank from 4 to 16 provides marginal accuracy gain (~0.1%)",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_083709_lora_fine_tuning_on"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T09:17:49"
-    },
-    {
-      "id": "L04622ac4",
-      "type": "strategy_success",
-      "category": "evaluation",
-      "pattern": "Using a small subset (first 2000 samples) for initial verification enables fast iteration and debugging before full training",
-      "context": "When testing new training scripts or hyperparameters, verify on a subset first to catch errors quickly",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_083709_lora_fine_tuning_on"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T09:17:49"
-    },
-    {
-      "id": "L30f30a66",
+      "id": "L11",
       "type": "pitfall",
       "category": "training",
-      "pattern": "Training runs may fail silently or produce errors; always re-run with proper arguments and verify output files are created",
-      "context": "When running experiments with different seeds/parameters, check that all result files are properly saved",
-      "confidence": 0.5,
+      "pattern": "DistilBERT: use 'distilbert-base-uncased' not 'bert-base-uncased'. DistilGPT-2: use 'distilgpt2'.",
+      "context": "Model name selection",
+      "confidence": 0.8,
       "mission_ids": [
-        "mission_20260307_083709_lora_fine_tuning_on"
+        "mission_20260307_092305"
       ],
       "times_applied": 0,
       "times_helpful": 0,
-      "created_at": "2026-03-07T09:17:49"
+      "created_at": "2026-03-07T10:00:00"
     },
     {
-      "id": "L2a560ead",
+      "id": "L12",
       "type": "strategy_success",
-      "category": "architecture",
-      "pattern": "PEFT library provides clean abstractions for LoRA implementation, reducing boilerplate and errors",
-      "context": "When implementing parameter-efficient fine-tuning, using established libraries like PEFT ensures reliable results",
-      "confidence": 0.5,
+      "category": "evaluation",
+      "pattern": "Compare models fairly: same dataset size, same seeds, same epochs. Report paired t-test, Cohen's d, and confidence intervals.",
+      "context": "Model comparison experiments",
+      "confidence": 0.8,
       "mission_ids": [
-        "mission_20260307_083709_lora_fine_tuning_on"
+        "multiple"
       ],
       "times_applied": 0,
       "times_helpful": 0,
-      "created_at": "2026-03-07T09:17:49"
-    },
-    {
-      "id": "L69f72531",
-      "type": "tool_preference",
-      "category": "tools",
-      "pattern": "Multiple seeds are necessary for robust comparison; single-seed results may be misleading due to variance",
-      "context": "When comparing hyperparameters like LoRA rank, test with at least 2-3 seeds to account for random variation",
-      "confidence": 0.5,
-      "mission_ids": [
-        "mission_20260307_083709_lora_fine_tuning_on"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T09:17:50"
+      "created_at": "2026-03-07T10:00:00"
     }
   ],
-  "updated_at": "2026-03-07T09:17:50"
+  "updated_at": "2026-03-07T10:15:00"
 }
