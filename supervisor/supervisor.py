@@ -425,6 +425,23 @@ class Supervisor:
                             has_real_metrics = True
                             break
 
+                # Fallback: check for result JSON files in workspace
+                if not has_real_metrics and hasattr(self, 'mission_ctx') and self.mission_ctx:
+                    import glob
+                    ws = self.mission_ctx.workspace_dir
+                    result_files = glob.glob(os.path.join(ws, "results*.json")) + \
+                                   glob.glob(os.path.join(ws, "**/results*.json"), recursive=True)
+                    for rf in result_files:
+                        try:
+                            with open(rf) as f:
+                                data = json.load(f)
+                            keys = {k.lower() for k in data.keys()} if isinstance(data, dict) else set()
+                            if keys & result_keywords:
+                                has_real_metrics = True
+                                break
+                        except Exception:
+                            continue
+
                 if not has_code:
                     print(f"  [Supervisor] BLOCKED 'done' — no code written yet!")
                     action = {"action": "implement",

@@ -208,15 +208,23 @@ If task should not be done:
             # Record to execution log (structured pipeline)
             if self.execution_log and name in ("run_python_code", "write_file"):
                 try:
-                    parsed = json.loads(result) if isinstance(result, str) else result
+                    if isinstance(result, dict):
+                        parsed = result
+                    elif isinstance(result, str):
+                        try:
+                            parsed = json.loads(result)
+                        except (json.JSONDecodeError, ValueError):
+                            parsed = {"stdout": result[:5000]}
+                    else:
+                        parsed = {"stdout": str(result)[:5000]}
                     self.execution_log.record(
                         cycle=self._current_cycle,
                         worker=self.WORKER_NAME,
                         tool_name=name,
                         result_dict=parsed if isinstance(parsed, dict) else {"stdout": str(parsed)},
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"  [{self.WORKER_NAME}] WARNING: execution_log.record failed: {e}")
 
             # Capture important tool results (code execution output, search results)
             if result and len(result.strip()) > 20:
