@@ -73,6 +73,9 @@ def _serialize_task(t: dict) -> dict:
         d["verification_score"] = t["verification_score"]
     if "low_verification" in t:
         d["low_verification"] = t["low_verification"]
+    # Preserve tool call names (not args — too large) for scoring
+    if "tool_calls" in t and t["tool_calls"]:
+        d["tool_calls"] = [{"name": tc.get("name", "")} for tc in t["tool_calls"]]
     return d
 
 
@@ -116,9 +119,9 @@ class Supervisor:
         # Result verifier: cross-checks claims vs stdout
         self.result_verifier = ResultVerifier()
 
-        # Execution log: structured pipeline (single source of truth)
+        # Execution log: always enabled when workspace exists (metric capture + done guard)
         self.execution_log = None
-        if pipeline_mode == "structured" and workspace_dir:
+        if workspace_dir:
             self.execution_log = ExecutionLog(workspace_dir)
 
         # Workers

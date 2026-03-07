@@ -326,20 +326,16 @@ class MissionScorer:
                            if os.path.basename(f) not in ("execution_log.json", "mission_score.json",
                                                             "dataset_info.json")]
             result_file_metrics = 0
+            metric_names = {
+                "accuracy", "loss", "f1", "mean", "std", "precision",
+                "recall", "perplexity", "auc", "bleu", "rouge",
+                "t_statistic", "p_value", "cohens_d",
+            }
             for rf in result_files:
                 try:
                     with open(rf) as f:
                         data = json.load(f)
-                    # Check if JSON contains numeric results (accuracy, loss, etc.)
-                    if isinstance(data, dict):
-                        for k, v in data.items():
-                            if isinstance(v, (int, float)) and k.lower() in (
-                                "accuracy", "loss", "f1", "mean", "std", "precision",
-                                "recall", "perplexity", "auc", "bleu", "rouge",
-                            ):
-                                result_file_metrics += 1
-                            elif isinstance(v, list) and v and isinstance(v[0], (int, float)):
-                                result_file_metrics += 1
+                    result_file_metrics += self._count_numeric_fields(data, metric_names)
                 except Exception:
                     pass
             if result_file_metrics > 0:
@@ -483,6 +479,27 @@ class MissionScorer:
         )
 
     # ── Helpers ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _count_numeric_fields(data, metric_names: set, depth: int = 0) -> int:
+        """Recursively count numeric fields matching metric names (max depth 3)."""
+        if depth > 3:
+            return 0
+        count = 0
+        if isinstance(data, dict):
+            for k, v in data.items():
+                k_lower = k.lower()
+                if isinstance(v, (int, float)) and any(m in k_lower for m in metric_names):
+                    count += 1
+                elif isinstance(v, list) and v and isinstance(v[0], (int, float)):
+                    count += 1
+                elif isinstance(v, (dict, list)):
+                    count += MissionScorer._count_numeric_fields(v, metric_names, depth + 1)
+        elif isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    count += MissionScorer._count_numeric_fields(item, metric_names, depth + 1)
+        return count
 
     @staticmethod
     def _read_json(path: str) -> dict | None:
