@@ -10,7 +10,9 @@ from workers.base_worker import BaseWorker
 EXPLORER_TOOLS = {
     "search_arxiv", "search_semantic_scholar", "search_openalex",
     "search_hf_datasets", "search_github_repos", "search_github_code",
-    "fetch_arxiv_by_id", "search_papers_with_code",
+    "fetch_arxiv_by_id", "search_papers_with_code", "fetch_paper_fulltext",
+    "read_paper", "extract_paper_details", "get_citation_graph",
+    "web_search", "web_fetch",
 }
 
 
@@ -20,7 +22,7 @@ class ExplorerWorker(BaseWorker):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.max_turns = 15  # Explorer needs more turns: each tool call = 1 turn
+        self.max_turns = 20  # Explorer needs many turns: citation graph + web search + deep reads
 
     SYSTEM_PROMPT = """You are a research explorer agent. Your job is to search for and summarize academic papers, datasets, and code repositories.
 
@@ -29,18 +31,49 @@ Capabilities:
 - search_semantic_scholar: Search Semantic Scholar (citation analysis, with retry)
 - search_openalex: Search OpenAlex (250M+ works, sorted by citations, with abstracts)
 - fetch_arxiv_by_id: Fetch a specific paper by arXiv ID (e.g. '2106.09685')
+- read_paper: Read FULL paper from arXiv (via ar5iv HTML). Extracts sections: abstract, methodology, experiments, results, conclusion. Use this to deeply understand a paper's approach, baselines, and experimental setup — not just its abstract.
+- extract_paper_details: Extract specific details from a paper: 'setup' (hyperparams, datasets), 'baselines' (what they compared against), 'findings' (key results), 'limitations'.
+- fetch_paper_fulltext: Download and read the FULL TEXT of an arXiv paper (PDF→text). Fallback if read_paper doesn't work.
 - search_papers_with_code: Search Papers With Code (papers + GitHub repos with stars)
 - search_hf_datasets: Search Hugging Face datasets
 - search_github_repos: Search GitHub repositories (if available)
 - search_github_code: Search GitHub code (if available)
+- get_citation_graph: Given a paper ID (arXiv ID, DOI, or S2 ID), returns papers that CITE it and papers it REFERENCES. Essential for expanding from initial search results to a comprehensive literature review.
+- web_search: Search the web via DuckDuckGo — find blog posts, tutorials, benchmark comparisons, and discussions not in academic databases.
+- web_fetch: Read any URL — fetch blog posts, documentation, or web articles found via web_search.
 
 Workflow:
-1. Understand the research topic
-2. Search MULTIPLE sources (at least 2-3 different APIs) for comprehensive coverage
-3. For each paper found, extract: title, authors, year, venue, citation count, arXiv ID if available
-4. Identify the most relevant/cited works (top 5-10 papers)
-5. Note any gaps or areas needing further exploration
-6. Search for open-source implementations (GitHub repos) related to the top papers
+1. **DECOMPOSE the research question** into 3-5 sub-questions that capture DIFFERENT aspects:
+   - Example: "Compare Dropout vs DropConnect" →
+     (a) "What is DropConnect and how does it differ from Dropout mechanistically?"
+     (b) "What benchmarks show Dropout vs DropConnect accuracy differences?"
+     (c) "What are best practices for regularization on small datasets?"
+   - Each sub-question generates DIFFERENT search queries → finds papers the others miss
+2. For EACH sub-question: search at least 2 of {search_arxiv, search_semantic_scholar, search_openalex}
+3. From the BEST paper found, call get_citation_graph — this typically yields 5-10 additional relevant papers
+4. For any seminal paper (>100 citations), also call get_citation_graph to find follow-up work
+5. If still <5 unique papers: use web_search with different query phrasings
+6. You MUST find at least 5 UNIQUE papers. Deduplicate by title.
+7. For each paper: title, authors, year, venue, citation count, arXiv ID
+8. **DEEP READ the top 1-2 papers** using read_paper — extract methodology, baselines, key findings
+9. Search for open-source implementations (search_github_repos or search_papers_with_code)
+
+## Search Strategy Tips
+- Use MULTIPLE query phrasings: e.g. "dropout regularization", "dropout neural network", "dropout variants comparison"
+- search_semantic_scholar is best for citation counts and finding seminal papers
+- search_openalex often has different results than arxiv — use both
+- get_citation_graph on the highest-cited paper is the FASTEST way to build a comprehensive bibliography
+- search_papers_with_code finds papers WITH code — prioritize these
+
+IMPORTANT: Prioritize BREADTH first (5+ unique papers), then DEPTH (read top 1-2).
+CRITICAL: ALWAYS use get_citation_graph at least ONCE — it typically doubles your paper count.
+NOTE: web_search finds practical insights, benchmarks, and recent developments not yet in academic databases.
+
+## Quality Filter
+- ONLY include papers that are DIRECTLY relevant to the research question
+- If a paper turned out to be off-topic or tangentially related, DROP it from your final list — do NOT pad the count
+- A focused list of 5 highly relevant papers is better than 10 papers where half are irrelevant
+- For each paper, briefly note WHY it's relevant to this specific research question
 
 ## MANDATORY Final Summary
 At the end of your work, you MUST provide a comprehensive structured summary:

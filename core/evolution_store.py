@@ -10,6 +10,7 @@ Learning types:
 - tool_preference: Which tools/APIs work best for what
 - parameter_guidance: Hyperparameters, dataset sizes, etc.
 - pitfall: Common mistakes to avoid
+- research_finding: Scientific results and conclusions from experiments
 """
 
 import json
@@ -43,7 +44,7 @@ class Learning:
 
 
 VALID_TYPES = {"strategy_success", "strategy_failure", "tool_preference",
-               "parameter_guidance", "pitfall"}
+               "parameter_guidance", "pitfall", "research_finding"}
 
 
 class EvolutionStore:
@@ -53,6 +54,7 @@ class EvolutionStore:
         self.store_dir = os.path.join(missions_dir, "_evolution")
         self.store_path = os.path.join(self.store_dir, "learnings.json")
         self.learnings: list[Learning] = []
+        self._last_injected_ids: list[str] = []  # Track which learnings were injected
         os.makedirs(self.store_dir, exist_ok=True)
         self._load()
 
@@ -153,10 +155,15 @@ class EvolutionStore:
         """Format relevant learnings for planner prompt injection.
 
         Returns formatted text or empty string if no relevant learnings.
+        Also tracks which learnings were injected for later feedback.
         """
         relevant = self.get_relevant_learnings(goal, limit=8)
         if not relevant:
+            self._last_injected_ids = []
             return ""
+
+        # Track injected IDs for feedback loop
+        self._last_injected_ids = [l.id for l in relevant]
 
         parts = ["## Learnings from Previous Missions"]
         for l in relevant:
@@ -170,6 +177,17 @@ class EvolutionStore:
 
         parts.append("\nApply these learnings to avoid known pitfalls and use proven strategies.")
         return "\n".join(parts)
+
+    def record_applied_learnings(self, was_helpful: bool):
+        """Record that the last-injected learnings were applied.
+        Call after mission tasks complete to close the feedback loop."""
+        for lid in self._last_injected_ids:
+            self.record_application(lid, was_helpful)
+        if self._last_injected_ids:
+            n = len(self._last_injected_ids)
+            status = "helpful" if was_helpful else "not helpful"
+            print(f"  [Evolution] Recorded {n} learnings as {status}")
+        self._last_injected_ids = []
 
     def reflect_on_mission(self, mission_id: str, goal: str, tasks: list[dict],
                            dag=None, llm=None):
@@ -269,6 +287,165 @@ Focus on:
                 mission_id=mission_id,
                 confidence=0.4,
             )
+
+    def extract_research_findings(self, mission_id: str, goal: str,
+                                   workspace_dir: str, llm=None):
+        """Extract research findings (metrics, conclusions) from mission workspace.
+
+        Reads analysis_summary.json and result JSONs to store reproducible findings.
+        These persist as semantic memory — future missions can reference them.
+        """
+        import glob
+
+        findings = []
+
+        # 1. Read analysis_summary.json (primary source of truth)
+        summary_path = os.path.join(workspace_dir, "analysis_summary.json")
+        if os.path.exists(summary_path):
+            try:
+                with open(summary_path) as f:
+                    summary = json.load(f)
+
+                # Extract methods + metrics
+                methods = summary.get("methods", {})
+                stats = summary.get("statistics", {})
+                conclusion = summary.get("conclusion", "")
+                best_method = summary.get("best_method", "")
+
+                if methods:
+                    method_strs = []
+                    for name, data in methods.items():
+                        mean = data.get("mean", data.get("accuracy", ""))
+                        std = data.get("std", "")
+                        if mean:
+                            method_strs.append(f"{name}: {mean}" + (f"±{std}" if std else ""))
+                    if method_strs:
+                        finding = f"Results: {'; '.join(method_strs)}"
+                        if best_method:
+                            finding += f". Best: {best_method}"
+                        findings.append({
+                            "pattern": finding,
+                            "context": goal[:120],
+                        })
+
+                # Statistical significance
+                if stats:
+                    p_val = stats.get("paired_t_test", {}).get("p_value",
+                            stats.get("p_value"))
+                    cohen_d = stats.get("cohens_d")
+                    if p_val is not None:
+                        sig = "significant" if p_val < 0.05 else "not significant"
+                        stat_str = f"p={p_val:.4f} ({sig})"
+                        if cohen_d:
+                            stat_str += f", Cohen's d={cohen_d:.2f}"
+                        findings.append({
+                            "pattern": f"Statistical test: {stat_str}",
+                            "context": f"{goal[:80]} — {best_method or 'comparison'}",
+                        })
+
+                if conclusion and isinstance(conclusion, str):
+                    findings.append({
+                        "pattern": conclusion[:200],
+                        "context": goal[:120],
+                    })
+
+            except (json.JSONDecodeError, Exception) as e:
+                pass
+
+        # 2. Scan result JSONs for key metrics
+        result_files = glob.glob(os.path.join(workspace_dir, "results_*.json"))
+        result_files += glob.glob(os.path.join(workspace_dir, "*_results.json"))
+        for rpath in result_files[:3]:
+            try:
+                with open(rpath) as f:
+                    rdata = json.load(f)
+                # Extract if it has accuracy/loss/f1
+                for key in ("accuracy", "eval_accuracy", "test_accuracy", "f1", "eval_loss"):
+                    if key in rdata:
+                        method = rdata.get("method", rdata.get("model", os.path.basename(rpath)))
+                        findings.append({
+                            "pattern": f"{method}: {key}={rdata[key]}",
+                            "context": goal[:120],
+                        })
+                        break
+            except Exception:
+                pass
+
+        # 3. Store findings
+        for f in findings[:5]:  # Max 5 findings per mission
+            self.add_learning(
+                type="research_finding",
+                category="results",
+                pattern=f["pattern"],
+                context=f["context"],
+                mission_id=mission_id,
+                confidence=0.7,  # Findings start higher (they're from data)
+            )
+
+        return len(findings)
+
+    def extract_hypothesis_chain(self, mission_id: str, goal: str,
+                                  hypothesis_chain: list[dict]):
+        """Extract confirmed/refuted hypotheses as cross-mission learnings.
+
+        Hypothesis chains are the most valuable scientific knowledge —
+        they encode what was TESTED and what the outcome was.
+        """
+        for rec in hypothesis_chain:
+            outcome = rec.get("outcome", "untested")
+            if outcome == "untested":
+                continue  # Only store evaluated hypotheses
+
+            claim = rec.get("claim", "")
+            evidence = rec.get("evidence", "")
+            if not claim:
+                continue
+
+            icon = {"confirmed": "CONFIRMED", "refuted": "REFUTED",
+                    "inconclusive": "INCONCLUSIVE"}.get(outcome, outcome)
+            pattern = f"[{icon}] {claim}"
+            if evidence:
+                pattern += f" — {evidence[:100]}"
+
+            self.add_learning(
+                type="research_finding",
+                category="hypothesis",
+                pattern=pattern,
+                context=goal[:120],
+                mission_id=mission_id,
+                confidence=0.8 if outcome in ("confirmed", "refuted") else 0.5,
+            )
+
+    def get_research_context(self, goal: str) -> str:
+        """Get relevant past research findings for a new mission.
+
+        Returns formatted text with prior results that might inform this research.
+        """
+        findings = [l for l in self.learnings if l.type == "research_finding"]
+        if not findings:
+            return ""
+
+        goal_words = set(goal.lower().split())
+        scored = []
+        for f in findings:
+            words = set(f.pattern.lower().split()) | set(f.context.lower().split())
+            overlap = len(goal_words & words) / max(len(goal_words | words), 1)
+            if overlap > 0.05:  # Very low threshold — any relevance
+                scored.append((overlap + f.confidence * 0.3, f))
+
+        scored.sort(key=lambda x: -x[0])
+        relevant = scored[:5]
+
+        if not relevant:
+            return ""
+
+        parts = ["## Prior Research Findings (from previous missions)"]
+        for _, f in relevant:
+            missions = ", ".join(f.mission_ids[:2]) if f.mission_ids else "?"
+            parts.append(f"- {f.pattern}")
+            parts.append(f"  (Source: {f.context[:60]}, mission: {missions})")
+        parts.append("\nBuild on these findings — don't repeat experiments that are already done.")
+        return "\n".join(parts)
 
     def record_application(self, learning_id: str, was_helpful: bool):
         """Record whether applying a learning was helpful.

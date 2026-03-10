@@ -30,6 +30,7 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 from config import (
     API_KEY, BASE_URL, MODEL, MAX_TURNS, MAX_TOKENS, TEMPERATURE,
     MISSIONS_DIR, MCP_SERVERS_DIR, GENERATED_MCP_DIR, SKILLS_DIR,
+    DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL,
 )
 from core.llm import MiniMaxClient
 from core.tool_registry import ToolRegistry
@@ -56,7 +57,18 @@ def _check_system_resources():
         pass
 
 
+_LLM_PROVIDER = "minimax"  # default, overridden by --llm flag
+
 def _make_llm() -> MiniMaxClient:
+    if _LLM_PROVIDER == "deepseek":
+        if not DEEPSEEK_API_KEY:
+            raise RuntimeError("DeepSeek API key not found. Add to Environment/deepseek_key.txt")
+        print(f"  [LLM] Using DeepSeek ({DEEPSEEK_MODEL})")
+        return MiniMaxClient(
+            api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL,
+            model=DEEPSEEK_MODEL, max_tokens=MAX_TOKENS,
+            temperature=TEMPERATURE,
+        )
     return MiniMaxClient(
         api_key=API_KEY, base_url=BASE_URL, model=MODEL,
         max_tokens=MAX_TOKENS, temperature=TEMPERATURE,
@@ -65,13 +77,20 @@ def _make_llm() -> MiniMaxClient:
 
 def _make_registry() -> ToolRegistry:
     registry = ToolRegistry()
-    from mcp_servers import paper_search, dataset_fetch, code_runner
+    from mcp_servers import paper_search, dataset_fetch, code_runner, paper_reader, web_tools
     registry.register_module(paper_search)
     registry.register_module(dataset_fetch)
     registry.register_module(code_runner)
+    registry.register_module(paper_reader)
+    registry.register_module(web_tools)
     try:
         from mcp_servers import github_search
         registry.register_module(github_search)
+    except ImportError:
+        pass
+    try:
+        from mcp_servers import gpu_tools
+        registry.register_module(gpu_tools)
     except ImportError:
         pass
     registry.load_builtin_servers(GENERATED_MCP_DIR)
@@ -351,8 +370,8 @@ Examples:
     parser.add_argument("--report", action="store_true", help="Generate report for a mission")
     parser.add_argument("--score", action="store_true", help="Score a mission (use with --resume)")
     parser.add_argument("--compare", action="store_true", help="Run A/B pipeline comparison")
-    parser.add_argument("--pipeline-mode", choices=["classic", "structured"], default="classic",
-                        help="Pipeline mode: classic (v9.2) or structured (execution log)")
+    parser.add_argument("--pipeline-mode", choices=["classic", "structured"], default="structured",
+                        help="Pipeline mode: classic (v9.2) or structured (execution log, default)")
     parser.add_argument("--validation-mode",
                         choices=["keyword", "llm_full", "llm_critical", "exec_first", "hybrid"],
                         default="llm_full",
@@ -364,8 +383,15 @@ Examples:
     parser.add_argument("--status", "-s", action="store_true", help="Show system status")
     parser.add_argument("--interactive", "-i", action="store_true", help="Interactive mode")
     parser.add_argument("--max-cycles", type=int, default=12, help="Max supervisor cycles (default: 12)")
+    parser.add_argument("--literature", action="store_true",
+                        help="Literature-only mode: deep search + hypothesis generation, no experiments")
+    parser.add_argument("--llm", choices=["minimax", "deepseek"], default="minimax",
+                        help="LLM provider (default: minimax)")
 
     args = parser.parse_args()
+
+    global _LLM_PROVIDER
+    _LLM_PROVIDER = args.llm
 
     llm = _make_llm()
     manager = MissionManager(MISSIONS_DIR, llm=llm)
@@ -468,10 +494,14 @@ Examples:
     ctx = manager.create_mission(goal, language=language, cross_knowledge=args.cross)
     print(f"  Created mission: {ctx.mission_id}")
 
-    pipeline_mode = getattr(args, 'pipeline_mode', 'classic') or 'classic'
-    validation_mode = getattr(args, 'validation_mode', 'keyword') or 'keyword'
+    pipeline_mode = getattr(args, 'pipeline_mode', 'structured') or 'structured'
+    validation_mode = getattr(args, 'validation_mode', 'llm_full') or 'llm_full'
     system = build_system(ctx, manager, pipeline_mode=pipeline_mode,
                           validation_mode=validation_mode)
+
+    # Literature-only mode: override planner to only generate explorer tasks
+    if getattr(args, 'literature', False):
+        system["supervisor"].literature_only = True
 
     # Disable inner monologue if requested (for A/B testing)
     if getattr(args, 'no_monologue', False):

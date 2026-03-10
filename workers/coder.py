@@ -15,9 +15,11 @@ import json
 from config import HW_ENV_SUMMARY
 from workers.base_worker import BaseWorker
 from supervisor.research_standards import get_coder_rules
+from core.code_recipes import format_recipes_for_prompt
 
 CODER_TOOLS = {"run_python_code", "write_file", "read_file", "pip_install", "detect_hardware",
-               "list_modules", "edit_function"}
+               "list_modules", "edit_function",
+               "gpu_search", "gpu_run", "gpu_status"}
 
 
 class CoderWorker(BaseWorker):
@@ -28,134 +30,58 @@ class CoderWorker(BaseWorker):
 ## Hardware Environment
 {HW_ENV_SUMMARY}
 
-## Capabilities
-- run_python_code: Execute Python code (any installed package — torch, numpy, etc.)
+## Tools
+- run_python_code: Execute Python code (any installed package)
 - write_file / read_file: File I/O in workspace directory
-- list_modules: See all functions/classes in a file with line ranges (use before editing!)
-- edit_function: Replace a SINGLE function/class in a file without touching the rest
-- pip_install: Install packages if needed (e.g. "torch numpy matplotlib")
-- detect_hardware: Check GPU / device availability at runtime
+- list_modules: See all functions/classes in a file with line ranges
+- edit_function: Replace a SINGLE function/class without touching the rest
+- pip_install: Install packages (e.g. "torch numpy matplotlib")
+- detect_hardware: Check GPU/device availability
 
 ## Workflow
-1. Understand the implementation requirements
-2. If a required package is not installed, use pip_install first
-3. Write clean, well-commented Python code
-4. Use the correct device for compute:
-   - If CUDA available: use `torch.device("cuda")`
-   - If MPS available: use `torch.device("mps")`
-   - Otherwise: use CPU, note it in output
-5. Execute the code and verify results
-6. If there are errors, analyze and fix them
-7. Report results with metrics (time, memory, device used)
-8. **ALWAYS use write_file to save your final code** — do NOT just run code without saving it
-9. **When task says "run" or "train"**: Execute the training code DIRECTLY in run_python_code.
-   Do NOT just write a .py file — you must also EXECUTE it and show the results.
-   The correct pattern: write the script with write_file, then run it with run_python_code.
-   Do NOT use exec(open(...)) or subprocess — paste the actual training code into run_python_code.
-10. **If training crashes, fix AND re-run**: Don't just fix the code and declare done.
-    After fixing, always re-execute to verify the fix produces real metrics.
+1. CHECK CONTEXT for Code Recipes — if provided, USE THEM. Do NOT rewrite from scratch.
+   - If a simple_cnn recipe is available, use it instead of ResNet/VGG (unless task explicitly names a specific architecture).
+2. SPEC COMPLIANCE: Use EXACT hyperparameters from the task (lr, momentum, weight_decay, epochs, seeds, samples). NEVER substitute your own values.
+3. pip_install if needed → write code with write_file
+4. SMOKE TEST FIRST: run a quick 1-batch forward pass to verify imports, data loading, and tensor shapes BEFORE full training. Fix any errors here — it's much cheaper than debugging mid-training.
+5. Execute full training with run_python_code
+6. If task says "run" or "train": you MUST execute and show results, not just write a file
+7. If code crashes, fix AND re-run — don't just fix and declare done
+8. Use edit_function (not write_file) to modify existing files. list_modules first.
+9. ALWAYS save final code with write_file
+9. For CIFAR-10/MNIST: use torchvision.datasets (NOT HuggingFace datasets)
 
-## CRITICAL: Editing Existing Files
-- **NEVER rewrite a whole file to fix a bug or change one function**
-- Instead: list_modules(filename) → read the function → edit_function(filename, func_name, new_code)
-- write_file is for NEW files only. edit_function is for modifying EXISTING files.
-- If you rewrite a 200-line file to change 5 lines, you will likely break something.
+## Figure Rules
+- NEVER plt.show() — use plt.savefig('name.png', dpi=150, bbox_inches='tight') then plt.close()
+- ALL text in figures in English
 
-## CRITICAL: Figure Generation Rules
-- **NEVER use plt.show()** — it blocks execution and opens a window
-- **ALWAYS use plt.savefig('filename.png', dpi=150, bbox_inches='tight')** then plt.close()
-- **ALL text in figures MUST be in English** — titles, labels, legends, annotations
-- Save figures to the workspace with descriptive names (e.g. 'loss_curve.png', 'comparison_results.png')
-- Example pattern:
-  ```python
-  plt.figure(figsize=(8, 5))
-  plt.plot(...)
-  plt.title('Training Loss Curve')  # English only
-  plt.xlabel('Epoch')
-  plt.ylabel('Loss')
-  plt.savefig('training_loss.png', dpi=150, bbox_inches='tight')
-  plt.close()
-  ```
+## Results Capture (CRITICAL)
+- ALWAYS save results to a JSON file FIRST, then print summary. Training stdout gets truncated.
+- Pattern: `json.dump(results, open('results_xxx.json', 'w'))` BEFORE printing.
+- Print key metrics as `metric_name: value` (e.g. `accuracy: 85.3`) for auto-capture.
+- If training has multiple seeds, save ALL seed results in one JSON.
 
-## CRITICAL: Match Model Class to Task Type
-- **Classification** (sentiment, NLI, topic): Use `AutoModelForSequenceClassification`, NOT `AutoModelForCausalLM`
-  - GPT-2/DistilGPT-2 classification: `AutoModelForSequenceClassification.from_pretrained("distilgpt2", num_labels=2)`
-  - Set `model.config.pad_token_id = tokenizer.pad_token_id`
-  - Loss and labels are handled automatically by the model
-- **Text generation** (summarization, translation, chat): Use `AutoModelForCausalLM`
-- **NEVER use causal LM loss (next-token prediction) to train a classifier** — it will produce 0.0 accuracy
-- When using PEFT/LoRA with classification: `task_type=TaskType.SEQ_CLS` in LoraConfig
-- **SST-2 column names**: HuggingFace uses 'sentence', but saved JSON files may use 'text'. Always check actual column names with `list(dataset.column_names)` or `data[0].keys()` before processing.
-
-## CRITICAL: HuggingFace TrainingArguments Compatibility
-- Use `eval_strategy` NOT `evaluation_strategy` (deprecated in transformers >= 4.46, removed in 4.50+)
-- Same for `save_strategy`, `logging_strategy` — use the short names
-- Example:
-  ```python
-  TrainingArguments(
-      output_dir="./output",
-      eval_strategy="epoch",      # NOT evaluation_strategy
-      save_strategy="epoch",      # NOT save_strategy="epoch" (this one is fine)
-      num_train_epochs=2,
-      per_device_train_batch_size=16,
-  )
-  ```
-
-## CRITICAL: Optimizer Compatibility
-- **NEVER use bitsandbytes optimizers** (adamw_bnb_8bit, etc.) — crashes with 'NoneType' error on Mac/MPS
-- **ALWAYS use standard optimizers**: `optim="adamw_torch"` in TrainingArguments
-- If you see 'cadam32bit_grad_fp32' error → change optimizer to adamw_torch
-
-## GPU/Device Guidelines
-- **PEFT/LoRA fine-tuning**: ALWAYS use CPU. MPS DOES NOT WORK (crashes with NoneType errors). Add this at the TOP of every training script:
-  ```python
-  import os
-  os.environ["CUDA_VISIBLE_DEVICES"] = ""
-  device = torch.device("cpu")
-  ```
-  Do NOT auto-detect device for fine-tuning. Do NOT try MPS. It WILL fail.
-- **Inference/non-training**: Auto-detect: `device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")`
-- Move tensors to device: `.to(device)`
-- For benchmarks, include warmup runs before timing
-- Report which device was actually used
-- For large models, check memory before loading (`torch.cuda.mem_get_info()` or estimate)
-
-## Structured Output
-When printing results, use the format: `metric_name: value`
-Examples: `accuracy: 85.3`, `loss: 0.42`, `training_time: 12.5s`, `f1_score: 0.91`
-This ensures metrics are automatically captured by the execution log.
+## GPU Available (vast.ai)
+- Use gpu_run for: fine-tuning, full dataset training, anything needing GPU or >10 min compute
+- gpu_run handles full lifecycle: find GPU → create → run → get results → destroy
+- Code must be SELF-CONTAINED: all imports, pip installs, data downloads, training, result printing
+- Costs tracked automatically. RTX 4090 ≈ $0.25/hr, A100 ≈ $0.50/hr
 
 ## Time Budget
-- Code execution has a 600s (10min) timeout. Plan accordingly:
-  - Training ONE model on 2000 samples for 2 epochs ≈ 200-400s on CPU
-  - **ALWAYS use dataset subsets** — `dataset.select(range(2000))` for training. Full datasets WILL timeout.
-  - Do NOT try to train multiple configurations in a single run_python_code call
-  - If training 3 seeds, do them ONE AT A TIME in separate run_python_code calls
-  - Always add timing: `import time; t0=time.time()` ... `print(f"training_time: {{time.time()-t0:.1f}}s")`
-  - **NEVER use subprocess.run/Popen/call** — it is BLOCKED at the system level and will return an error. Paste training code directly into run_python_code.
-  - **NEVER use exec(open(...).read())** — paste the code directly.
-
-## Code Quality
-- Write modular, testable code with clear function boundaries
-- Use type annotations for function signatures
-- Include docstrings for public functions
-- Include basic tests/assertions to verify correctness
-- Report performance metrics (time, memory, throughput) when relevant
-- If implementing a paper's algorithm, cite the specific equations/sections
-
-## Modular Code Guidelines
-- Break code into small, focused functions (one responsibility each)
-- Define clear I/O contracts: typed parameters and return values
-- When fixing a bug, modify only the affected function — do NOT rewrite the whole file
+- 600s timeout per run_python_code call (LOCAL CPU). Training on 2000 samples ≈ 60-100s per seed on CPU.
+- For heavy tasks: use gpu_run instead (no timeout, remote execution).
+- Train ALL 5 seeds in ONE run_python_code call (loop over seeds), save to ONE JSON file.
+- Always add timing: `import time; t0=time.time()` ... `print(f"training_time: {{time.time()-t0:.1f}}s")`
+- Budget: 5 seeds × ~100s = ~500s. Keep each seed under 100s. If tight, reduce epochs or samples.
+- Save JSON after EACH seed (not all at end) so partial results survive timeout.
 
 ## MANDATORY Final Summary
-At the end of your work, you MUST provide a comprehensive summary with:
-1. **Files Created/Modified**: List all files saved to workspace with write_file
-2. **Architecture**: Describe the model/algorithm architecture with key hyperparameters
-3. **Results Table**: Show all numerical results in a clear table format
-4. **Key Findings**: 2-3 sentences on what the results mean
-5. **Limitations**: What this implementation does NOT cover (for a real study, you would need...)
-6. **Reproducibility Note**: Exact command to re-run, random seeds used, training epochs, etc.
+1. **Files Created/Modified**: List all files saved with write_file
+2. **Architecture**: Model/algorithm with key hyperparameters
+3. **Results Table**: All numerical results
+4. **Key Findings**: 2-3 sentences
+5. **Limitations**: What this doesn't cover
+6. **Reproducibility**: Seeds, epochs, commands to re-run
 
 Respond in the same language as the task."""
 
@@ -165,8 +91,9 @@ Respond in the same language as the task."""
         self.code_store = code_store
 
     def _get_tool_executor(self):
-        """Wrap write_file calls to auto-track with code store."""
-        base_executor = self.registry.execute
+        """Wrap write_file calls to auto-track with code store.
+        Chains through super() to get ToolGuard preflight checks."""
+        base_executor = super()._get_tool_executor()
         if not self.code_store:
             return base_executor
 
@@ -211,7 +138,21 @@ Respond in the same language as the task."""
         return tracked_executor
 
     def run(self, task: str, context: str = "") -> dict:
-        """Run with code store context and quality rules injected."""
+        """Run with code store context, quality rules, and code recipes injected."""
+        # Inject pre-vetted code recipes FIRST (highest priority — before quality rules)
+        recipes = format_recipes_for_prompt(task)
+        if recipes:
+            recipe_block = (
+                "# ⚠️ MANDATORY: USE THESE PRE-TESTED CODE SNIPPETS\n"
+                "# Do NOT write data loading, training loops, or multi-seed eval from scratch.\n"
+                "# Copy-paste these recipes and modify only what's needed for the task.\n\n"
+                + recipes
+            )
+            if context:
+                context = recipe_block + "\n\n" + context
+            else:
+                context = recipe_block
+
         # Inject quality rules
         quality_rules = get_coder_rules()
         if context:
@@ -282,10 +223,75 @@ Respond in the same language as the task."""
                 "error": "No files found in workspace — code was not saved via write_file",
             }
 
+        # Spec compliance check (discrepancy monitor)
+        spec_warnings = self._check_spec_compliance(task, stdout_capture or full_output)
+        if spec_warnings:
+            for w in spec_warnings:
+                print(f"  [coder] Spec: {w}")
+
         # Filesystem OK → run LLM judge
-        return super()._validate_with_llm_judge(
+        result = super()._validate_with_llm_judge(
             task, full_output, stdout_capture, tool_calls_log, messages, elapsed,
         )
+
+        # Attach spec warnings to result for judge visibility
+        if spec_warnings and isinstance(result, dict):
+            result["spec_warnings"] = spec_warnings
+        return result
+
+    @staticmethod
+    def _check_spec_compliance(task: str, output: str) -> list[str]:
+        """Deterministic spec compliance: extract numbers from task, verify in output.
+
+        Returns list of warning strings. Empty if all specs found.
+        """
+        import re
+        warnings = []
+
+        # Extract spec numbers from task description
+        # Patterns: "3 epochs", "2000 samples", "seed 42", "lr 2e-4", etc.
+        spec_patterns = [
+            (r'(\d+)\s*epoch', 'epochs'),
+            (r'(\d+)\s*sample', 'samples'),
+            (r'(\d+)\s*seed', 'seeds'),
+            (r'seed[s]?\s*[\(:]?\s*([\d,\s]+)', 'seed_values'),
+            (r'learning.?rate\s*[=:]?\s*([\d.e\-]+)', 'learning_rate'),
+            (r'batch.?size\s*[=:]?\s*(\d+)', 'batch_size'),
+        ]
+
+        specs = {}
+        for pattern, name in spec_patterns:
+            match = re.search(pattern, task.lower())
+            if match:
+                specs[name] = match.group(1)
+
+        if not specs:
+            return []  # No specs to check
+
+        # Check each spec against output
+        for name, value in specs.items():
+            if name == 'seed_values':
+                # Check each seed appears
+                seed_nums = re.findall(r'\d+', value)
+                for seed in seed_nums:
+                    if seed not in output:
+                        warnings.append(f"Seed {seed} specified in task but not found in output")
+            elif name == 'epochs':
+                # Check epoch count in training output
+                epoch_matches = re.findall(r'epoch[s]?\s*[=:]?\s*(\d+)', output.lower())
+                num_epochs = re.findall(r'num_train_epochs\s*[=:]?\s*(\d+)', output.lower())
+                if num_epochs and int(num_epochs[-1]) != int(value):
+                    warnings.append(f"Task says {value} epochs but code uses {num_epochs[-1]}")
+            elif name == 'samples':
+                # Check sample count
+                sample_matches = re.findall(r'select\(range\((\d+)\)', output)
+                sample_matches += re.findall(r'(\d+)\s*(?:train|training)\s*sample', output.lower())
+                if sample_matches:
+                    actual = sample_matches[-1]
+                    if int(actual) != int(value):
+                        warnings.append(f"Task says {value} samples but output shows {actual}")
+
+        return warnings
 
     def _validate_output(self, output: str) -> dict:
         """Coder must have real files in workspace, not just text patterns.

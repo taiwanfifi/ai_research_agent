@@ -29,6 +29,21 @@ API_KEY = _load_api_key()
 BASE_URL = os.environ.get("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
 MODEL = os.environ.get("MINIMAX_MODEL", "MiniMax-M2.5-highspeed")
 
+# ── DeepSeek Configuration ─────────────────────────────────────────
+def _load_deepseek_key() -> str:
+    """Load DeepSeek API key from file or environment."""
+    if key := os.environ.get("DEEPSEEK_API_KEY"):
+        return key
+    keyfile = os.path.join(os.path.dirname(BASE_DIR), "Environment", "deepseek_key.txt")
+    if os.path.exists(keyfile):
+        with open(keyfile) as f:
+            return f.read().strip()
+    return ""  # Not required — only needed when --llm deepseek
+
+DEEPSEEK_API_KEY = _load_deepseek_key()
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+
 # ── Runtime Limits ──────────────────────────────────────────────────
 MAX_TURNS = int(os.environ.get("MAX_TURNS", "10"))
 MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "4096"))

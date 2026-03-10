@@ -1,0 +1,92 @@
+[
+  {
+    "id": "ml.model_setup",
+    "when": ["classification", "sentiment", "NLI", "GPT-2", "DistilGPT", "DistilBERT", "BERT", "tokenizer", "pad_token", "LoRA", "PEFT", "LoraConfig"],
+    "instruction": "Model setup checklist: (1) Classification → AutoModelForSequenceClassification, NOT AutoModelForCausalLM. (2) Set model.config.pad_token_id = tokenizer.pad_token_id. (3) GPT-2: tokenizer.pad_token = tokenizer.eos_token. (4) DistilBERT: 'distilbert-base-uncased'. DistilGPT-2: 'distilgpt2'. (5) PEFT: get_peft_model(model, LoraConfig(...)). GPT-2 target_modules=['c_attn']. Classification: task_type=TaskType.SEQ_CLS."
+  },
+  {
+    "id": "ml.eval_strategy",
+    "when": ["TrainingArguments", "Trainer", "eval_strategy", "evaluation_strategy"],
+    "instruction": "Use eval_strategy (not evaluation_strategy — removed in transformers 4.50+). Use optim='adamw_torch' (not bitsandbytes)."
+  },
+  {
+    "id": "ml.force_cpu",
+    "when": ["LoRA", "PEFT", "LoraConfig", "get_peft_model"],
+    "instruction": "PEFT/LoRA: LOCAL execution → force CPU (os.environ['CUDA_VISIBLE_DEVICES']='' at TOP). MPS crashes with NoneType errors on PEFT. BUT prefer gpu_run for PEFT tasks — remote GPU has CUDA, no MPS issues. If task involves LoRA/PEFT training, USE gpu_run FIRST. Only fall back to local CPU if gpu_run fails."
+  },
+  {
+    "id": "ml.sst2_columns",
+    "when": ["SST-2", "sst2", "glue"],
+    "instruction": "SST-2 HuggingFace uses 'sentence' column. Test split has no labels — use validation split. Check actual column names with list(dataset.column_names)."
+  },
+  {
+    "id": "python.sandbox",
+    "when": ["subprocess", "Popen", "os.system", "exec(", "eval(", "open("],
+    "instruction": "NEVER use subprocess.run/Popen/os.system — BLOCKED at system level. Never use exec(open(...).read()). Paste code directly into run_python_code."
+  },
+  {
+    "id": "viz.savefig",
+    "when": ["plt", "matplotlib", "figure", "chart", "plot"],
+    "instruction": "Use plt.savefig('name.png', dpi=150, bbox_inches='tight') then plt.close(). NEVER plt.show(). ALL text in English."
+  },
+  {
+    "id": "ml.test_first",
+    "when": ["train", "fine-tun", "epoch", "infrastructure", "shared", "model", "data_utils"],
+    "instruction": "PRINCIPLE: Test early, fail fast. (1) Run a 1-batch smoke test before full training to catch import/shape errors. (2) Test each component IMMEDIATELY after writing — forward pass with dummy data, print shapes. (3) Do NOT write 3+ files then try to run them together."
+  },
+  {
+    "id": "ml.capture_results",
+    "when": ["train", "experiment", "benchmark", "training loop", "epochs", "loss"],
+    "instruction": "PRINCIPLE: Capture everything. (1) Save results to JSON FIRST, then print summary. Training stdout gets truncated. (2) Loss explosion guard: if loss > 100, break. (3) Save JSON after EACH seed, not all at end. (4) Print metrics as 'metric_name: value' for auto-capture. (5) torch.manual_seed() before EACH seed."
+  },
+  {
+    "id": "ml.reproducibility",
+    "when": ["seed", "reproducib", "benchmark", "compare"],
+    "instruction": "PRINCIPLE: Reproducible science. Use 5 seeds (42, 123, 456, 789, 1024) and report mean ± std. Fewer than 5 seeds is insufficient for reliable statistical conclusions."
+  },
+  {
+    "id": "ml.dataset_subset",
+    "when": ["train", "fine-tun", "epoch", "dataset"],
+    "instruction": "Use dataset.select(range(2000)) for LOCAL CPU training. Full datasets cause 600s timeout. For full-dataset training, use gpu_run instead."
+  },
+  {
+    "id": "ml.training_must_run",
+    "when": ["train", "fine-tun", "run experiment"],
+    "instruction": "Training tasks MUST produce actual metrics. Writing code to a file is NOT enough — you must run the training and print results."
+  },
+  {
+    "id": "ml.verify_architecture",
+    "when": ["modify", "replace", "normalization", "LayerNorm", "RMSNorm", "attention", "architecture"],
+    "instruction": "Before modifying model architecture: print(model) first. Verify your assumptions about the default architecture before changing it."
+  },
+  {
+    "id": "ml.analysis_script",
+    "when": ["analyze", "analysis", "statistics", "comparison", "t-test"],
+    "instruction": "Analysis: (1) Load from JSON files, not memory variables. (2) scipy.stats.ttest_rel for paired t-test. (3) Save analysis_summary.json with ALL numbers. (4) plt.savefig(), never plt.show()."
+  },
+  {
+    "id": "ml.gnn_features",
+    "when": ["GNN", "graph neural", "graph attention", "message passing"],
+    "instruction": "In GNNs, each node must have its OWN features. Do NOT flatten the entire input and copy to all nodes."
+  },
+  {
+    "id": "code.edit_not_rewrite",
+    "when": ["fix", "bug", "error", "modify"],
+    "instruction": "Use list_modules + edit_function to fix bugs. Do NOT rewrite entire files to change a few lines."
+  },
+  {
+    "id": "ml.simplify_fallback",
+    "when": ["SIMPLIFICATION REQUIRED", "failed repeatedly", "simplify"],
+    "instruction": "Previous complex approach failed. Use RAW PyTorch (not HuggingFace Trainer). Simple train loop: for epoch, for batch, loss.backward(), optimizer.step(). Get results first, optimize later."
+  },
+  {
+    "id": "data.cifar10_cache",
+    "when": ["CIFAR", "cifar", "CIFAR-10", "cifar10"],
+    "instruction": "CIFAR-10 is pre-cached at /Users/william/.cache/torch/cifar10/. Use download=False. Do NOT download=True — timeout risk."
+  },
+  {
+    "id": "compute.gpu_available",
+    "when": ["finetune", "fine-tune", "LoRA", "PEFT", "full dataset", "ImageNet", "large model", "13B", "70B", "GPU", "CUDA"],
+    "instruction": "MANDATORY: Use gpu_run for LoRA/PEFT fine-tuning (local CPU is too slow, local MPS crashes). gpu_run handles everything: find GPU → create → SCP upload → SSH execute → destroy. Code MUST be self-contained: all imports, pip installs, data downloads, training loop, print results. Do NOT use os.environ['CUDA_VISIBLE_DEVICES']='' inside gpu_run code — remote has real CUDA GPU. RTX 3060 ~$0.035/hr, RTX 4090 ~$0.25/hr. Results come back via stdout."
+  }
+]

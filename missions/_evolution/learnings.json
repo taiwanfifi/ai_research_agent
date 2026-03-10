@@ -4,170 +4,402 @@
       "id": "L01",
       "type": "pitfall",
       "category": "training",
-      "pattern": "CRITICAL: For CLASSIFICATION tasks, use AutoModelForSequenceClassification, NOT AutoModelForCausalLM. Causal LM gives 0.0 accuracy. With PEFT: task_type=TaskType.SEQ_CLS.",
+      "pattern": "For CLASSIFICATION tasks, use AutoModelForSequenceClassification, NOT AutoModelForCausalLM. With PEFT: task_type=TaskType.SEQ_CLS.",
       "context": "Any sentiment/NLI/topic classification",
       "confidence": 1.0,
-      "mission_ids": [
-        "multiple"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T15:51:32"
+      "mission_ids": [],
+      "times_applied": 3,
+      "times_helpful": 3,
+      "created_at": ""
     },
     {
       "id": "L02",
       "type": "pitfall",
       "category": "environment",
-      "pattern": "PEFT/LoRA fine-tuning MUST use CPU. MPS crashes with NoneType errors. Set os.environ['CUDA_VISIBLE_DEVICES']='' BEFORE torch import.",
+      "pattern": "PEFT/LoRA fine-tuning MUST use CPU on Apple Silicon. MPS crashes. Set os.environ[\"CUDA_VISIBLE_DEVICES\"]=\"\" BEFORE torch import.",
       "context": "Apple Silicon Mac",
       "confidence": 1.0,
-      "mission_ids": [
-        "multiple"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T16:00:00"
+      "mission_ids": [],
+      "times_applied": 3,
+      "times_helpful": 3,
+      "created_at": ""
     },
     {
       "id": "L03",
       "type": "pitfall",
       "category": "training",
-      "pattern": "Use 'eval_strategy' NOT 'evaluation_strategy' in TrainingArguments. Use optim='adamw_torch' NOT bitsandbytes.",
-      "context": "Any HuggingFace Trainer script",
+      "pattern": "Use eval_strategy (not evaluation_strategy) in TrainingArguments. Use optim=\"adamw_torch\".",
+      "context": "transformers >= 4.50",
       "confidence": 1.0,
-      "mission_ids": [
-        "multiple"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T07:00:00"
+      "mission_ids": [],
+      "times_applied": 3,
+      "times_helpful": 3,
+      "created_at": ""
     },
     {
       "id": "L04",
       "type": "pitfall",
       "category": "data",
-      "pattern": "ALWAYS use dataset.select(range(2000)) for training. Full SST-2 (67K) causes 600s timeout. 2000 samples + 2-3 epochs ≈ 60-180s.",
-      "context": "CPU training with timeout",
+      "pattern": "ALWAYS use dataset.select(range(2000)) for training. Full datasets cause 600s timeout. SST-2 uses \"sentence\" column; test split has no labels — use validation.",
+      "context": "HuggingFace datasets",
       "confidence": 1.0,
-      "mission_ids": [
-        "multiple"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T07:30:00"
+      "mission_ids": [],
+      "times_applied": 3,
+      "times_helpful": 3,
+      "created_at": ""
     },
     {
       "id": "L05",
       "type": "pitfall",
       "category": "training",
-      "pattern": "GPT-2 requires: tokenizer.pad_token = tokenizer.eos_token AND model.config.pad_token_id = tokenizer.pad_token_id.",
-      "context": "GPT-2/DistilGPT-2 training",
+      "pattern": "GPT-2: set tokenizer.pad_token = tokenizer.eos_token AND model.config.pad_token_id. DistilBERT: use \"distilbert-base-uncased\". DistilGPT-2: use \"distilgpt2\".",
+      "context": "Model-specific quirks",
       "confidence": 1.0,
-      "mission_ids": [
-        "multiple"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-04T11:20:55"
+      "mission_ids": [],
+      "times_applied": 3,
+      "times_helpful": 3,
+      "created_at": ""
     },
     {
       "id": "L06",
-      "type": "tool_preference",
+      "type": "pitfall",
       "category": "tools",
-      "pattern": "PEFT library: get_peft_model(model, LoraConfig(...)). GPT-2 target_modules: ['c_attn','c_proj']. BERT: ['query','value'].",
-      "context": "LoRA fine-tuning",
-      "confidence": 0.8,
-      "mission_ids": [
-        "multiple"
-      ],
+      "pattern": "Run training code DIRECTLY in run_python_code. subprocess.run is BLOCKED. Never use exec(open(...)). Do NOT use remove_columns=dataset.column_names (removes labels).",
+      "context": "code_runner constraints",
+      "confidence": 1.0,
+      "mission_ids": [],
       "times_applied": 0,
       "times_helpful": 0,
-      "created_at": "2026-03-04T11:20:55"
+      "created_at": ""
     },
     {
       "id": "L07",
-      "type": "pitfall",
-      "category": "data",
-      "pattern": "SST-2: HuggingFace uses 'sentence' column. Test split has no labels — use validation. AutoTokenizer for DistilGPT-2 (not DistilGPT2Tokenizer).",
-      "context": "SST-2 sentiment classification",
-      "confidence": 0.8,
-      "mission_ids": [
-        "multiple"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T16:00:00"
-    },
-    {
-      "id": "L08",
-      "type": "parameter_guidance",
+      "type": "best_practice",
       "category": "evaluation",
-      "pattern": "Use 2-3 seeds (42, 123, 456) and report mean ± std. Single-seed results are not statistically meaningful.",
-      "context": "ML experiment comparison",
-      "confidence": 0.8,
-      "mission_ids": [
-        "multiple"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-06T16:00:00"
-    },
-    {
-      "id": "L09",
-      "type": "strategy_success",
-      "category": "training",
-      "pattern": "Run training code DIRECTLY in run_python_code. subprocess is BLOCKED. Never use exec(open(...)). Paste code directly.",
-      "context": "Executing training",
+      "pattern": "Use 5 seeds (42, 123, 456, 789, 1024), report mean +/- std, paired t-test, Cohen\"s d. Save results to JSON FIRST (stdout gets truncated). Create 2+ comparison figures.",
+      "context": "Statistical rigor",
       "confidence": 1.0,
-      "mission_ids": [
-        "multiple"
-      ],
+      "mission_ids": [],
       "times_applied": 0,
       "times_helpful": 0,
-      "created_at": "2026-03-07T08:00:00"
-    },
-    {
-      "id": "L10",
-      "type": "strategy_success",
-      "category": "evaluation",
-      "pattern": "Save results JSON immediately after training. Print metrics as 'metric_name: value'. Create 2+ figures (comparison chart + loss curves).",
-      "context": "After training runs",
-      "confidence": 0.8,
-      "mission_ids": [
-        "multiple"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T07:30:00"
-    },
-    {
-      "id": "L11",
-      "type": "pitfall",
-      "category": "training",
-      "pattern": "DistilBERT: use 'distilbert-base-uncased' not 'bert-base-uncased'. DistilGPT-2: use 'distilgpt2'.",
-      "context": "Model name selection",
-      "confidence": 0.8,
-      "mission_ids": [
-        "mission_20260307_092305"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-07T10:00:00"
+      "created_at": ""
     },
     {
       "id": "L12",
-      "type": "strategy_success",
-      "category": "evaluation",
-      "pattern": "Compare models fairly: same dataset size, same seeds, same epochs. Report paired t-test, Cohen's d, and confidence intervals.",
-      "context": "Model comparison experiments",
+      "type": "pitfall",
+      "category": "data",
+      "pattern": "CIFAR-10 download takes 15+ minutes on slow connections. Use torchvision.datasets.CIFAR10(root=\"/Users/william/.cache/torch/cifar10\", download=False) to use pre-cached data. If not cached, download=True but beware of 600s timeout. Alternative: use dataset.select(range(2000)) from HuggingFace which is smaller.",
+      "context": "CIFAR-10 experiments on slow network",
+      "confidence": 1.0,
+      "mission_ids": [
+        "mission_20260309_021523"
+      ],
+      "times_applied": 3,
+      "times_helpful": 3,
+      "created_at": "2026-03-09T04:30:00"
+    },
+    {
+      "id": "L8e4de019",
+      "type": "research_finding",
+      "category": "results",
+      "pattern": "results_l2.json: test_accuracy=66.45",
+      "context": "implement and compare dropout",
+      "confidence": 0.9999999999999999,
+      "mission_ids": [
+        "mission_20260307_135217_implement_and_compare_dropout"
+      ],
+      "times_applied": 3,
+      "times_helpful": 3,
+      "created_at": "2026-03-09T11:43:17"
+    },
+    {
+      "id": "L247d881b",
+      "type": "research_finding",
+      "category": "results",
+      "pattern": "results_dropout.json: test_accuracy=64.82",
+      "context": "implement and compare dropout",
+      "confidence": 0.9999999999999999,
+      "mission_ids": [
+        "mission_20260307_135217_implement_and_compare_dropout"
+      ],
+      "times_applied": 3,
+      "times_helpful": 3,
+      "created_at": "2026-03-09T11:43:17"
+    },
+    {
+      "id": "L08",
+      "type": "best_practice",
+      "category": "architecture",
+      "pattern": "For custom BERT student: use BertConfig with explicit hidden_size, num_layers, num_heads, vocab_size=30522, model_type=\"bert\". HuggingFace Hub configs may be broken.",
+      "context": "Knowledge distillation",
+      "confidence": 0.8,
+      "mission_ids": [],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": ""
+    },
+    {
+      "id": "L09",
+      "type": "best_practice",
+      "category": "tools",
+      "pattern": "Define shared utilities in separate modules (data_utils.py, model_utils.py). All seed runs in ONE run_python_code call to save turns.",
+      "context": "Code organization",
+      "confidence": 0.8,
+      "mission_ids": [],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": ""
+    },
+    {
+      "id": "Lc88938aa",
+      "type": "research_finding",
+      "category": "hypothesis",
+      "pattern": "[REFUTED] BN's instability at small batches manifests as high variance across seeds; LN will show lower coefficient of variation in accuracy across seeds — Expected BN CV > LN CV by >20%. Actual: BN CV = 0.68/92.10 = 0.0074, LN CV = 0.84/92.20 = 0.0091. LN",
+      "context": "Compare batch normalization vs layer normalization for a simple MLP on MNIST. Use 2000 training samples, 5 epochs, 5 see",
       "confidence": 0.8,
       "mission_ids": [
-        "multiple"
+        "mission_20260310_092901_compare_batch_normalization_vs"
       ],
       "times_applied": 0,
       "times_helpful": 0,
-      "created_at": "2026-03-07T10:00:00"
+      "created_at": "2026-03-10T09:52:19"
+    },
+    {
+      "id": "L10",
+      "type": "insight",
+      "category": "training",
+      "pattern": "Large teacher-student capacity gaps may cause student to EXCEED teacher on simple datasets (MNIST). Distillation adds no value when task is too easy.",
+      "context": "Knowledge distillation",
+      "confidence": 0.7,
+      "mission_ids": [],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": ""
+    },
+    {
+      "id": "Lf48391f7",
+      "type": "research_finding",
+      "category": "results",
+      "pattern": "results_rank4_seed42.json: eval_accuracy=0.8153669724770642",
+      "context": "lora fine tuning on",
+      "confidence": 0.7,
+      "mission_ids": [
+        "mission_20260307_073137_lora_fine_tuning_on"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-09T11:43:17"
+    },
+    {
+      "id": "L9f7780cb",
+      "type": "research_finding",
+      "category": "results",
+      "pattern": "results_rank16_seed42.json: eval_accuracy=0.8153669724770642",
+      "context": "lora fine tuning on",
+      "confidence": 0.7,
+      "mission_ids": [
+        "mission_20260307_073137_lora_fine_tuning_on"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-09T11:43:17"
+    },
+    {
+      "id": "L430edee9",
+      "type": "research_finding",
+      "category": "results",
+      "pattern": "L2 regularization significantly outperforms dropout (p < 0.05) with lower variance",
+      "context": "implement and compare dropout",
+      "confidence": 0.7,
+      "mission_ids": [
+        "mission_20260307_135217_implement_and_compare_dropout"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-09T11:43:17"
+    },
+    {
+      "id": "L6e07c6d2",
+      "type": "research_finding",
+      "category": "results",
+      "pattern": "Results: L2_regularization: 51.95666666666667±1.1750886491381556; Dropout: 48.34666666666667±1.3939990435195198",
+      "context": "l2 dropout cnn cifar",
+      "confidence": 0.7,
+      "mission_ids": [
+        "mission_20260308_010217_l2_dropout_cnn_cifar"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-09T11:43:17"
+    },
+    {
+      "id": "Lcf86e8f0",
+      "type": "research_finding",
+      "category": "results",
+      "pattern": "results_dropout_seed123.json: test_accuracy=48.81",
+      "context": "l2 dropout cnn cifar",
+      "confidence": 0.7,
+      "mission_ids": [
+        "mission_20260308_010217_l2_dropout_cnn_cifar"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-09T11:43:17"
+    },
+    {
+      "id": "Le295c9c4",
+      "type": "research_finding",
+      "category": "results",
+      "pattern": "results_dropout_seed456.json: test_accuracy=49.45",
+      "context": "l2 dropout cnn cifar",
+      "confidence": 0.7,
+      "mission_ids": [
+        "mission_20260308_010217_l2_dropout_cnn_cifar"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-09T11:43:17"
+    },
+    {
+      "id": "Lf2d11f70",
+      "type": "research_finding",
+      "category": "results",
+      "pattern": "Batch Normalization slightly outperforms Layer Normalization in test accuracy (91.57% vs 91.20%), with a large effect size. The difference is not statistically significant (p=0.0828).",
+      "context": "batch normalization layer normalization",
+      "confidence": 0.7,
+      "mission_ids": [
+        "mission_20260308_024155_batch_normalization_layer_normalization"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-09T11:43:17"
+    },
+    {
+      "id": "L87c1918e",
+      "type": "research_finding",
+      "category": "results",
+      "pattern": "Results: patience_5: 0.8635321100917431±0.002293577981651418; no_early_stopping: 0.860091743119266±0.007945187190682875; patience_2: 0.8600917431192661",
+      "context": "early stopping patience 2",
+      "confidence": 0.7,
+      "mission_ids": [
+        "mission_20260308_040723_early_stopping_patience_2"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-09T11:43:17"
+    },
+    {
+      "id": "Lf530ae95",
+      "type": "research_finding",
+      "category": "results",
+      "pattern": "Dropout significantly outperforms DropConnect by 27.3 percentage points in accuracy (p=3.59e-04, Cohen's d=30.5). Dropout achieves 87.7% ± 0.6% accuracy vs 60.4% ± 1.0% for DropConnect.",
+      "context": "compare dropout vs dropconnect",
+      "confidence": 0.7,
+      "mission_ids": [
+        "mission_20260308_182328_compare_dropout_vs_dropconnect"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-09T11:43:17"
+    },
+    {
+      "id": "L3ec61665",
+      "type": "research_finding",
+      "category": "results",
+      "pattern": "Results: SGD: 0.933±0.005656854249492385; Adam: 0.9186666666666667±0.006658328118479399; AdamW: 0.936±0.004358898943540614. Best: AdamW",
+      "context": "compare sgd vs adam",
+      "confidence": 0.7,
+      "mission_ids": [
+        "mission_20260308_205838_compare_sgd_vs_adam"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-09T11:43:17"
+    },
+    {
+      "id": "L9d52862e",
+      "type": "research_finding",
+      "category": "results",
+      "pattern": "AdamW achieves the highest test accuracy (93.60% ± 0.44%), significantly outperforming Adam (p=0.020). SGD performs comparably to AdamW (p=0.545), while Adam shows the lowest performance.",
+      "context": "compare sgd vs adam",
+      "confidence": 0.7,
+      "mission_ids": [
+        "mission_20260308_205838_compare_sgd_vs_adam"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-09T11:43:17"
+    },
+    {
+      "id": "Laa44982b",
+      "type": "research_finding",
+      "category": "results",
+      "pattern": "results_sgd_seed123.json: test_accuracy=0.929",
+      "context": "compare sgd vs adam",
+      "confidence": 0.7,
+      "mission_ids": [
+        "mission_20260308_205838_compare_sgd_vs_adam"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-09T11:43:17"
+    },
+    {
+      "id": "L0f1c741b",
+      "type": "research_finding",
+      "category": "results",
+      "pattern": "Statistical test: p=0.2958 (not significant), Cohen's d=1.62",
+      "context": "compare softmax attention vs — softmax",
+      "confidence": 0.7,
+      "mission_ids": [
+        "mission_20260308_235154_compare_softmax_attention_vs"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-09T11:43:17"
+    },
+    {
+      "id": "L5c2b05ed",
+      "type": "research_finding",
+      "category": "results",
+      "pattern": "At small model scale (2-layer, 128-dim), softmax (80.07%±1.80%) and linear (79.27%±1.88%) attention achieve statistically equivalent accuracy (t=1.40, p=0.296), supporting the hypothesis. However, lin",
+      "context": "compare softmax attention vs",
+      "confidence": 0.7,
+      "mission_ids": [
+        "mission_20260308_235154_compare_softmax_attention_vs"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-09T11:43:17"
+    },
+    {
+      "id": "L000108c1",
+      "type": "research_finding",
+      "category": "results",
+      "pattern": "Statistical test: p=0.0709 (not significant), Cohen's d=-2.05",
+      "context": "compare rmsnorm vs layernorm — layernorm",
+      "confidence": 0.7,
+      "mission_ids": [
+        "mission_20260309_005138_compare_rmsnorm_vs_layernorm"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-09T11:43:17"
+    },
+    {
+      "id": "L8c40be3d",
+      "type": "research_finding",
+      "category": "results",
+      "pattern": "LayerNorm (27.3%) slightly outperforms RMSNorm (24.9%) but the difference is NOT statistically significant (p=0.0709, Cohen's d=-2.05). LayerNorm has 512 more parameters.",
+      "context": "compare rmsnorm vs layernorm",
+      "confidence": 0.7,
+      "mission_ids": [
+        "mission_20260309_005138_compare_rmsnorm_vs_layernorm"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-09T11:43:17"
     }
   ],
-  "updated_at": "2026-03-07T10:15:00"
+  "updated_at": "2026-03-10T12:05:35"
 }

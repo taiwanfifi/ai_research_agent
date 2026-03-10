@@ -29,8 +29,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import (
     API_KEY, BASE_URL, MODEL, MAX_TURNS, MAX_TOKENS, TEMPERATURE,
-    MISSIONS_DIR,
+    MISSIONS_DIR, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL,
 )
+from core.llm import MiniMaxClient
 
 
 # ── Predefined validation mode configs ─────────────────────────────
@@ -72,6 +73,19 @@ VALIDATION_CONFIGS = {
         "pipeline_mode": "structured",
         "validation_mode": "keyword",
     },
+    # LLM provider configs
+    "deepseek": {
+        "name": "deepseek",
+        "pipeline_mode": "structured",
+        "validation_mode": "llm_full",
+        "llm_provider": "deepseek",
+    },
+    "minimax": {
+        "name": "minimax",
+        "pipeline_mode": "structured",
+        "validation_mode": "llm_full",
+        "llm_provider": "minimax",
+    },
 }
 
 
@@ -90,7 +104,6 @@ def run_comparison(goal: str, max_cycles: int = 8,
     Returns:
         Comparison result dict
     """
-    from core.llm import MiniMaxClient
     from core.mission import MissionManager
 
     if configs is None:
@@ -111,9 +124,11 @@ def run_comparison(goal: str, max_cycles: int = 8,
         config_name = cfg["name"]
         pipeline_mode = cfg.get("pipeline_mode", "structured")
         validation_mode = cfg.get("validation_mode", "keyword")
+        llm_provider = cfg.get("llm_provider", "minimax")
 
         print(f"\n{'='*60}")
         print(f"  A/B Comparison — Config {i+1}/{len(configs)}: {config_name}")
+        print(f"  LLM: {llm_provider}")
         print(f"  Pipeline mode: {pipeline_mode}")
         print(f"  Validation mode: {validation_mode}")
         print(f"  Goal: {goal}")
@@ -126,7 +141,7 @@ def run_comparison(goal: str, max_cycles: int = 8,
         print(f"  Mission: {ctx.mission_id}")
 
         # Build system with specified modes
-        from main import _make_llm, _make_registry, _check_system_resources
+        from main import _make_registry, _check_system_resources
         from core.event_bus import EventBus
         from core.state import StateStore
         from core.code_store import CodeVersionStore
@@ -137,7 +152,18 @@ def run_comparison(goal: str, max_cycles: int = 8,
 
         _check_system_resources()
 
-        run_llm = _make_llm()
+        # Select LLM provider
+        if llm_provider == "deepseek":
+            run_llm = MiniMaxClient(
+                api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL,
+                model=DEEPSEEK_MODEL, max_tokens=MAX_TOKENS,
+                temperature=TEMPERATURE,
+            )
+        else:
+            run_llm = MiniMaxClient(
+                api_key=API_KEY, base_url=BASE_URL, model=MODEL,
+                max_tokens=MAX_TOKENS, temperature=TEMPERATURE,
+            )
         registry = _make_registry()
 
         # Scope code tools to mission workspace

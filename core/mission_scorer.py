@@ -21,6 +21,7 @@ import os
 import glob
 import re
 from dataclasses import dataclass, field
+from core.deterministic_verifier import DeterministicVerifier
 
 
 @dataclass
@@ -125,13 +126,29 @@ class MissionScorer:
             self._score_literature(completed_tasks, knowledge_dir),
             self._score_code(workspace_dir, completed_tasks, execution_log),
             self._score_results(completed_tasks, execution_log, workspace_dir),
-            self._score_verification(checkpoint),
+            self._score_verification(checkpoint, workspace_dir),
             self._score_artifacts(workspace_dir),
             self._score_report(reports_dir),
         ]
 
         # Weighted overall
         overall = sum(d.score * d.weight for d in dimensions)
+
+        # Fatal flaw cap: if verification found data sanity issues, cap the grade
+        ver_dim = next((d for d in dimensions if d.name == "verification"), None)
+        if ver_dim:
+            fatal_flaws = [e for e in ver_dim.evidence
+                           if "EXPERIMENT_INVALID" in e or "FATAL_DUPLICATE" in e]
+            absurd_effects = [e for e in ver_dim.evidence if "ABSURD_EFFECT" in e]
+            if fatal_flaws:
+                # IV not manipulated — cap at C regardless of other dimensions
+                overall = min(overall, 5.5)
+                ver_dim.evidence.append("OVERALL_CAPPED: fatal data flaw detected")
+            elif absurd_effects:
+                # Unfair comparison — cap at B
+                overall = min(overall, 7.5)
+                ver_dim.evidence.append("OVERALL_CAPPED: absurd effect size detected")
+
         grade = _grade_from_score(overall)
 
         score = MissionScore(
@@ -190,6 +207,7 @@ class MissionScorer:
             exec_summary=exec_summary,
             report_content=report_content,
             completed_tasks=completed_tasks,
+            workspace_dir=workspace_dir,
         )
 
         # Convert to MissionScore
@@ -357,35 +375,127 @@ class MissionScorer:
             name="results", score=min(10.0, score), weight=0.25, evidence=evidence,
         )
 
-    def _score_verification(self, checkpoint: dict) -> DimensionScore:
-        """Verification dimension: result_verifier score from checkpoint."""
+    def _score_verification(self, checkpoint: dict,
+                             workspace_dir: str = "") -> DimensionScore:
+        """Verification dimension: ground-truth JSON + result_verifier + task scores."""
         evidence = []
         score = 0.0
 
+        # 1. Ground-truth JSON files (primary signal — up to 6 points)
+        if workspace_dir and os.path.isdir(workspace_dir):
+            json_files = [f for f in glob.glob(os.path.join(workspace_dir, "*.json"))
+                          if os.path.basename(f) not in
+                          ("execution_log.json", "mission_score.json", "dataset_info.json")]
+            metric_names = {
+                "accuracy", "loss", "f1", "mean", "std", "precision",
+                "recall", "perplexity", "auc", "bleu", "rouge",
+                "t_statistic", "p_value", "cohens_d", "mean_accuracy",
+                "std_accuracy", "training_time", "best_accuracy",
+            }
+            has_analysis = False
+            has_multi_seed = False
+            has_stats_test = False
+            total_metrics = 0
+
+            for jf in json_files:
+                try:
+                    with open(jf) as f:
+                        data = json.load(f)
+                    basename = os.path.basename(jf)
+
+                    # analysis_summary.json = gold standard
+                    if "analysis" in basename or "summary" in basename or "final" in basename:
+                        has_analysis = True
+
+                    # Deep scan for stats and multi-seed (handles nested structures)
+                    if isinstance(data, dict):
+                        flat = self._flatten_json_keys(data)
+                        # Stats test: any key containing p_value, t_statistic, cohens_d
+                        stat_keys = {"p_value", "t_statistic", "t_test", "cohens_d",
+                                     "statistics", "methods"}
+                        if any(sk in k for k in flat for sk in stat_keys):
+                            has_stats_test = True
+                        # Multi-seed: any key "seeds" with list≥2, or "accuracies" list≥2
+                        seed_array_keys = {"seeds", "accuracies", "scores",
+                                           "baseline_accuracies", "warmup_accuracies",
+                                           "test_accuracies", "eval_accuracies",
+                                           "test_acc_per_seed", "per_seed"}
+                        for k, v in flat.items():
+                            if isinstance(v, list) and len(v) >= 2:
+                                k_lower = k.split(".")[-1]
+                                if k_lower in seed_array_keys:
+                                    has_multi_seed = True
+                                elif all(isinstance(x, (int, float)) for x in v) and len(v) >= 3:
+                                    has_multi_seed = True
+
+                    total_metrics += self._count_numeric_fields(data, metric_names)
+                except Exception:
+                    pass
+
+            if has_analysis:
+                score += 3.0
+                evidence.append("analysis/summary JSON found (ground truth)")
+            if has_multi_seed:
+                score += 1.5
+                evidence.append("multi-seed results in JSON")
+            if has_stats_test:
+                score += 1.5
+                evidence.append("statistical tests in JSON")
+            if total_metrics > 0 and not has_analysis:
+                score += min(3.0, total_metrics * 0.5)
+                evidence.append(f"{total_metrics} metric fields in JSON files")
+
+        # 2. Stdout capture (secondary — up to 2 points)
         verifier_data = checkpoint.get("result_verifier", {})
         captured = verifier_data.get("captured", [])
-        evidence.append(f"{len(captured)} numbers captured from stdout")
-
         if captured:
-            score += min(4.0, len(captured) * 0.3)
+            score += min(2.0, len(captured) * 0.2)
+            evidence.append(f"{len(captured)} numbers captured from stdout")
 
-        # Check completed tasks for verification scores
+        # 3. Task-level verification scores (up to 2 points)
         completed = checkpoint.get("completed_tasks", [])
         verified_tasks = [t for t in completed if "verification_score" in t]
         if verified_tasks:
             avg_score = sum(t["verification_score"] for t in verified_tasks) / len(verified_tasks)
-            score += avg_score * 6.0  # 0-1 → 0-6
+            score += avg_score * 2.0  # 0-1 → 0-2
             evidence.append(f"avg verification: {avg_score:.0%} over {len(verified_tasks)} tasks")
 
-        # Fabrication blocks: catching fabrication is good, but many blocks means poor worker quality
+        # 4. Fabrication penalty
         fabrication_blocks = sum(
             1 for t in completed
             if not t.get("success") and "fabrication" in (t.get("error") or "").lower()
         )
         if fabrication_blocks:
-            # Light penalty — catching fabrication is the system working correctly
             score = max(0, score - fabrication_blocks * 0.5)
             evidence.append(f"{fabrication_blocks} fabrication blocks caught")
+
+        if not evidence:
+            evidence.append("no verification data found")
+
+        # ── Deterministic Verifier (Layer 2-3 augmentation) ──────
+        if workspace_dir and os.path.isdir(workspace_dir):
+            try:
+                verifier = DeterministicVerifier()
+                det_result = verifier.verify(workspace_dir)
+                det_score = det_result.total_score
+
+                # Blend: 50% existing + 50% deterministic
+                blended = 0.5 * score + 0.5 * det_score
+                ds_penalty = det_result.breakdown.get("data_sanity", 0)
+                evidence.append(f"det_verifier: {det_score:.1f}/10 "
+                                f"(sanity={det_result.breakdown.get('sanity', 0):.0f}, "
+                                f"curves={det_result.breakdown.get('curves', 0):.1f}, "
+                                f"stats={det_result.breakdown.get('stats', 0):.1f}, "
+                                f"data_sanity={ds_penalty:.0f})")
+                # Prioritize fatal issues, then others
+                fatal = [i for i in det_result.issues
+                         if any(k in i for k in ("FATAL", "INVALID", "ABSURD", "BROKEN"))]
+                other = [i for i in det_result.issues if i not in fatal]
+                for issue in (fatal + other)[:5]:
+                    evidence.append(f"  {issue}")
+                score = blended
+            except Exception as e:
+                evidence.append(f"det_verifier error: {e}")
 
         return DimensionScore(
             name="verification", score=min(10.0, score), weight=0.15, evidence=evidence,
@@ -479,6 +589,25 @@ class MissionScorer:
         )
 
     # ── Helpers ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _flatten_json_keys(data, prefix: str = "", depth: int = 0) -> dict:
+        """Flatten nested dict/list to dot-separated keys (max depth 4)."""
+        flat = {}
+        if depth > 4:
+            return flat
+        if isinstance(data, dict):
+            for k, v in data.items():
+                key = f"{prefix}.{k}" if prefix else k
+                flat[key] = v
+                if isinstance(v, (dict, list)):
+                    flat.update(MissionScorer._flatten_json_keys(v, key, depth + 1))
+        elif isinstance(data, list):
+            for i, item in enumerate(data[:10]):  # Cap at 10 items
+                if isinstance(item, dict):
+                    flat.update(MissionScorer._flatten_json_keys(
+                        item, f"{prefix}[{i}]", depth + 1))
+        return flat
 
     @staticmethod
     def _count_numeric_fields(data, metric_names: set, depth: int = 0) -> int:

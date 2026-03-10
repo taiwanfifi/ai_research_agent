@@ -167,14 +167,28 @@ class ExecutionLog:
                 all_files.extend(e.files_written)
 
         if all_metrics:
-            parts.append("METRICS (from code execution stdout):")
+            parts.append("METRICS (from code execution stdout — showing FINAL value per metric):")
             for metric_name, values in all_metrics.items():
-                if len(values) == 1:
-                    v = values[0]
-                    parts.append(f"  {metric_name}: {v['value']}")
-                else:
-                    val_strs = [f"{v['value']} (cycle {v['cycle']})" for v in values]
-                    parts.append(f"  {metric_name}: {' → '.join(val_strs)}")
+                latest = values[-1]  # Always use latest value
+                parts.append(f"  {metric_name}: {latest['value']} (cycle {latest['cycle']})")
+
+        # Include JSON result files from workspace for cross-verification
+        import glob as glob_mod
+        result_files = sorted(glob_mod.glob(os.path.join(self.workspace_dir, "results*.json"))
+                              + glob_mod.glob(os.path.join(self.workspace_dir, "analysis*.json")))
+        if result_files:
+            parts.append("\nRESULT FILES (ground truth for verification):")
+            for rf in result_files[:8]:  # Max 8 files
+                try:
+                    import json as json_mod
+                    with open(rf) as fh:
+                        data = json_mod.load(fh)
+                    fname = os.path.basename(rf)
+                    # Compact representation
+                    compact = json_mod.dumps(data, indent=None, ensure_ascii=False)
+                    parts.append(f"  {fname}: {compact[:300]}")
+                except Exception:
+                    pass
 
         unique_files = list(dict.fromkeys(all_files))
         if unique_files:

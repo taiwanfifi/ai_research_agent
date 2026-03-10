@@ -90,7 +90,13 @@ class LLMJudge:
         if worker_name == "explorer":
             worker_guide = "Worker role: EXPLORER (searches papers/repos). Judge by: papers found, relevance, citations. Do NOT penalize for missing code/results — that's not this worker's job."
         elif worker_name == "coder":
-            worker_guide = "Worker role: CODER (writes & runs code). Judge by: did they write/edit files? did code run without errors? Bug fixes and file edits count as task_completed even without new metrics. is_substantive=true if any file was written/edited or code was executed."
+            # Distinguish write-only tasks from train/run tasks
+            task_lower = task.lower()
+            is_training_task = any(kw in task_lower for kw in ["train", "run experiment", "execute", "fine-tune", "finetune"])
+            if is_training_task:
+                worker_guide = "Worker role: CODER (writes & runs code). This is a TRAINING/EXECUTION task. task_completed=true ONLY if code actually ran and produced metrics (accuracy, loss, etc.) in stdout. Writing code to a file WITHOUT running it does NOT count as task_completed. is_substantive=true only if actual results were produced."
+            else:
+                worker_guide = "Worker role: CODER (writes & runs code). Judge by: did they write/edit files? did code run without errors? Bug fixes and file edits count as task_completed even without new metrics. is_substantive=true if any file was written/edited or code was executed."
         elif worker_name == "reviewer":
             worker_guide = "Worker role: REVIEWER (benchmarks/evaluates). Judge by: did they run code and produce metrics? Computing statistics from existing result files also counts as task_completed. is_substantive=true if metrics/analysis were produced."
 
@@ -241,7 +247,8 @@ Rules:
 
     def score_mission(self, goal: str, workspace_files: list[str],
                       exec_summary: str = "", report_content: str = "",
-                      completed_tasks: list[dict] = None) -> dict:
+                      completed_tasks: list[dict] = None,
+                      workspace_dir: str = "") -> dict:
         """
         Score a completed mission across 6 dimensions.
 
@@ -278,6 +285,11 @@ Rules:
                 parts.append(f"[{status}] {t.get('worker','?')}: {t.get('task','')[:60]}")
             task_summary = "\n".join(parts[-15:])  # last 15
 
+        # ── Load ground-truth metrics from workspace JSON files ──
+        json_contents = ""
+        if workspace_dir:
+            json_contents = self._load_workspace_json(workspace_dir)
+
         system_prompt = (
             "You are a research mission quality scorer. Analyze the mission outputs "
             "and score across 6 dimensions. Return ONLY valid JSON. "
@@ -291,6 +303,9 @@ Rules:
 
 ## Workspace Files
 {files_text}
+
+## Result Data (from JSON files — GROUND TRUTH for verification scoring)
+{json_contents or "(no JSON result files found)"}
 
 ## Execution Summary
 {exec_summary[:2000] if exec_summary else "(no execution log)"}
@@ -317,7 +332,7 @@ Scoring guide:
 - literature: 0=no papers, 5=some papers found, 10=comprehensive review with citations
 - code: 0=no code, 5=code exists but errors, 10=clean code, all runs pass
 - results: 0=no results, 5=basic results, 10=multi-seed with error bars and comparisons
-- verification: 0=claims fabricated, 5=some verified, 10=all claims match execution output
+- verification: 0=claims fabricated, 5=some verified, 10=all claims match result data. CRITICAL: (1) Compare report claims against the "Result Data" JSON above (ground truth). If report numbers match JSON data, score 8+. Only penalize if report claims numbers NOT found in ANY JSON file. Metrics evolve across cycles — use the LATEST results. (2) SPEC COMPLIANCE: Check if the experiment used the parameters from the Goal (epochs, samples, seeds, learning rate). If the goal says "10 epochs" but results show 50 epochs, or "2000 samples" but report says 10k, deduct 3+ points. Parameter mismatches are a serious verification failure.
 - artifacts: 0=no files, 5=code files only, 10=figures + data + models
 - report: 0=no report, 5=basic report, 10=well-structured with all sections
 - overall: weighted average (results 25%, code 20%, literature 15%, verification 15%, report 15%, artifacts 10%)
@@ -369,6 +384,38 @@ Scoring guide:
                 result["grade"] = "F"
 
         return result
+
+    # ── Internal: Workspace JSON loader ────────────────────────────
+
+    @staticmethod
+    def _load_workspace_json(workspace_dir: str, max_chars: int = 2000) -> str:
+        """Load JSON result files from workspace for ground-truth scoring.
+        Returns formatted string with key metrics from each file."""
+        import os
+        parts = []
+        total_chars = 0
+        if not os.path.isdir(workspace_dir):
+            return ""
+        for root, _, fnames in os.walk(workspace_dir):
+            for fn in sorted(fnames):
+                if not fn.endswith('.json') or fn.startswith('.'):
+                    continue
+                filepath = os.path.join(root, fn)
+                try:
+                    with open(filepath) as f:
+                        data = json.load(f)
+                    rel = os.path.relpath(filepath, workspace_dir)
+                    summary = json.dumps(data, indent=1, default=str, ensure_ascii=False)
+                    if len(summary) > 500:
+                        summary = summary[:500] + "..."
+                    entry = f"### {rel}\n```json\n{summary}\n```"
+                    if total_chars + len(entry) > max_chars:
+                        break
+                    parts.append(entry)
+                    total_chars += len(entry)
+                except Exception:
+                    continue
+        return "\n\n".join(parts)
 
     # ── Internal: LLM call with JSON parsing ───────────────────────
 

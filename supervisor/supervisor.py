@@ -31,6 +31,9 @@ from core.insight_dag import InsightDAG
 from core.result_verifier import ResultVerifier
 from core.execution_log import ExecutionLog
 from core.llm_judge import LLMJudge
+from core.hypothesis_generator import HypothesisGenerator
+from core.research_validator import ResearchValidator
+from core.research_tree import ResearchTree
 from knowledge.tree import KnowledgeTree
 from supervisor.planner import TaskPlanner
 from supervisor.reporter import Reporter
@@ -64,7 +67,7 @@ def _serialize_task(t: dict) -> dict:
         "depends_on": t.get("depends_on", []),
         "success": success,
         "status": "done" if success else ("failed" if success is False else "pending"),
-        "output": (t.get("output") or "")[:2000],
+        "output": (t.get("output") or "")[:4000 if t.get("worker") == "explorer" else 2000],
         "elapsed_s": t.get("elapsed_s"),
         "error": t.get("error"),
     }
@@ -174,9 +177,10 @@ class Supervisor:
         self.errors: list[str] = []
         self.reports_generated: int = 0
         self.cycle = 0
-        self.max_cycles = 12
+        self.max_cycles = 15  # Soft default — auto-extends if progress is strong
         self._last_action: str = ""
         self._repeat_count: int = 0
+        self.literature_only: bool = False  # Literature-only mode: explorer tasks only
 
         # Failure tracking for smarter pivoting
         self._consecutive_failures: dict = {}  # worker_name → count
@@ -184,6 +188,23 @@ class Supervisor:
         self._last_advisories: list = []
         # Friction buffer: accumulated failure diagnoses (Round 13)
         self._friction_buffer: list = []
+        # Process reward: per-cycle progress signal (Round 13.1)
+        from core.process_reward import ProcessRewardTracker
+        self.process_reward = ProcessRewardTracker()
+        # Hypothesis generator: research iteration (Round 13.2)
+        self.hypothesis_gen = HypothesisGenerator(llm)
+        self._pending_hypotheses = None  # Last generated hypotheses
+        # Research design validator (Round 15.3)
+        self.research_validator = ResearchValidator(llm)
+        self._design_verdict = None
+        # Thread lock for parallel dispatch (Round 16)
+        import threading
+        self._dispatch_lock = threading.Lock()
+        # Live terminal message bus (None in batch mode)
+        self.message_bus = None
+        # Research tree: progressive branching search (Round 17)
+        self.research_tree: ResearchTree | None = None
+        self._active_branch_id: str = ""  # Currently exploring branch
 
         # ── Memory Distillation (DAG-based) ──────────────────────
         # Structured insight graph with relevance scoring
@@ -219,9 +240,15 @@ class Supervisor:
             "flow_monitor": self.flow_monitor.to_dict(),
             # Round 10: pipeline mode (execution_log lives on disk, not in checkpoint)
             "pipeline_mode": self.pipeline_mode,
+            "design_validation": self._design_verdict.to_dict() if self._design_verdict else None,
             "has_execution_log": self.execution_log is not None,
             # Round 11: validation mode
             "validation_mode": self.validation_mode,
+            # Round 16.2: hypothesis chain
+            "hypothesis_chain": [r.to_dict() for r in self.hypothesis_gen.history],
+            # Round 17: research tree
+            "research_tree": self.research_tree.to_dict() if self.research_tree else None,
+            "active_branch_id": self._active_branch_id,
         }
         # Flush execution log to disk before checkpoint
         if self.execution_log:
@@ -244,6 +271,7 @@ class Supervisor:
         self.agent_state = cp.get("state", AgentState.RUNNING)
         self.cycle = cp.get("cycle", 0)
         self.max_cycles = cp.get("max_cycles", self.max_cycles)
+        self._initial_max_cycles = self.max_cycles  # For auto-extend hard limit
         self.completed_tasks = cp.get("completed_tasks", [])
         self.task_queue = cp.get("task_queue", [])
         self.errors = cp.get("errors", [])
@@ -289,6 +317,24 @@ class Supervisor:
                 self.execution_log = ExecutionLog(ws_dir)
             for w in self.workers.values():
                 w.execution_log = self.execution_log
+        # Restore research tree (Round 17)
+        if "research_tree" in cp and cp["research_tree"]:
+            self.research_tree = ResearchTree.from_dict(cp["research_tree"])
+            self._active_branch_id = cp.get("active_branch_id", self.research_tree.root_id)
+        # Restore hypothesis chain (Round 16.2)
+        if "hypothesis_chain" in cp:
+            from core.hypothesis_generator import HypothesisRecord, Hypothesis
+            self.hypothesis_gen.history = []
+            for rec in cp["hypothesis_chain"]:
+                self.hypothesis_gen.history.append(HypothesisRecord(
+                    hypothesis=Hypothesis(
+                        claim=rec.get("claim", ""),
+                        reasoning="", experiment="", expected_outcome="",
+                    ),
+                    outcome=rec.get("outcome", "untested"),
+                    evidence=rec.get("evidence", ""),
+                    cycle=rec.get("cycle", 0),
+                ))
 
     # ── Main entry points ────────────────────────────────────────────
 
@@ -298,6 +344,7 @@ class Supervisor:
         self.direction = (self.mission_ctx.direction
                           if self.mission_ctx else goal)
         self.max_cycles = max_cycles or self.max_cycles
+        self._initial_max_cycles = self.max_cycles  # Hard cap for auto-extend
         self.cycle = 0
         self.completed_tasks = []
         self.task_queue = []
@@ -318,11 +365,44 @@ class Supervisor:
 
         self._print_header()
 
+        # ── Research design validation (Round 15.3) ──
+        if not self.literature_only:
+            print(f"  [Validator] Checking experiment design...")
+            verdict = self.research_validator.validate(
+                goal=self.direction,
+                evolution_store=self.evolution_store,
+            )
+            self._design_verdict = verdict
+
+            if not verdict.viable:
+                print(f"  [Validator] REJECTED: {verdict.reject_reason}")
+                for iss in verdict.issues:
+                    print(f"    [{iss.severity}] {iss.description}")
+                # Only modify direction for FATAL rejections
+                self.direction = f"{self.direction}\n\nWARNING: {verdict.reject_reason}"
+
+            elif verdict.modified_goal:
+                print(f"  [Validator] Modified design: {verdict.modifications_summary}")
+                for iss in verdict.issues:
+                    print(f"    [{iss.severity}] {iss.description} → {iss.fix}")
+                # Use modified goal as direction (this is a genuine redesign)
+                self.direction = verdict.modified_goal
+
+            elif verdict.issues:
+                # Minor/major issues: log them but do NOT modify direction
+                # These are noted in _design_verdict for the planner to consider
+                for iss in verdict.issues:
+                    print(f"  [Validator] [{iss.severity}] {iss.description}")
+
         # Parse goal into measurable sub-goals
         print(f"  [GoalTracker] Parsing goal into sub-goals...")
-        self.goal_tracker.parse_goal(goal)
+        self.goal_tracker.parse_goal(self.direction)
         for sg in self.goal_tracker.sub_goals:
             print(f"    - [{sg.type}] {sg.description}")
+
+        # Initialize research tree (progressive branching)
+        self.research_tree = ResearchTree(self.direction)
+        self._active_branch_id = self.research_tree.root_id
 
         # Initial planning — get a starting set of tasks
         self.agent_state = AgentState.PLANNING
@@ -375,7 +455,59 @@ class Supervisor:
         self.agent_state = AgentState.RUNNING
 
         while self.cycle < self.max_cycles:
+            # ── Adaptive cycle management (inspired by kael_daemon) ──
+            # Auto-extend: if tasks remain and progress is strong, add cycles
+            if self.cycle == self.max_cycles - 1 and self.task_queue:
+                trend = self.process_reward.get_trend()
+                hard_limit = self._initial_max_cycles * 2  # Never exceed 2x original budget
+                if trend in ("strong_progress", "moderate_progress") and self.max_cycles < hard_limit:
+                    extension = min(3, len(self.task_queue), hard_limit - self.max_cycles)
+                    if extension > 0:
+                        self.max_cycles += extension
+                        print(f"  [Supervisor] Auto-extending {extension} cycles "
+                              f"(tasks remain, progress={trend}) → max={self.max_cycles}")
+
+            # Early completion: if research question is answered, skip remaining cycles
+            if (not self.task_queue and len(self.completed_tasks) >= 3
+                    and self.cycle > 5):
+                workers_used = set(t.get("worker") for t in self.completed_tasks
+                                   if t.get("success"))
+                has_all = ("coder" in workers_used and "reviewer" in workers_used)
+                if has_all and not self.literature_only:
+                    # Check for result files
+                    if hasattr(self, 'mission_ctx') and self.mission_ctx:
+                        import glob as _glob
+                        ws = self.mission_ctx.workspace_dir
+                        has_results = bool(_glob.glob(os.path.join(ws, "results*.json")) or
+                                          _glob.glob(os.path.join(ws, "analysis*.json")))
+                        has_figures = bool(_glob.glob(os.path.join(ws, "*.png")))
+                        if has_results and has_figures:
+                            print(f"  [Supervisor] Early completion: all tasks done, "
+                                  f"results + figures present (cycle {self.cycle}/{self.max_cycles})")
+                            break
+
+            # R20.3: "Good enough" detector — stop if analysis is statistically complete
+            if (self.cycle > 7 and not self.literature_only
+                    and hasattr(self, 'mission_ctx') and self.mission_ctx):
+                if self._is_research_complete():
+                    print(f"  [Supervisor] Research complete: statistical analysis found "
+                          f"(cycle {self.cycle}/{self.max_cycles})")
+                    break
+                # Also stop if stagnating/declining with partial results
+                trend = self.process_reward.get_trend()
+                if trend in ("stagnating", "declining") and self.cycle > 10:
+                    import glob as _glob
+                    ws = self.mission_ctx.workspace_dir
+                    has_any_results = bool(_glob.glob(os.path.join(ws, "results*.json")))
+                    if has_any_results:
+                        print(f"  [Supervisor] Stopping: {trend} trend with results present "
+                              f"(cycle {self.cycle}/{self.max_cycles})")
+                        break
+
             self.cycle += 1
+
+            # ── Live terminal: check for user messages ──
+            self._check_live_messages()
 
             print(f"\n{'─'*60}")
             print(f"  Cycle {self.cycle}/{self.max_cycles}")
@@ -410,6 +542,47 @@ class Supervisor:
                               "reason": "Moving from search to implementation"}
                     action_type = "implement"
                 self._repeat_count = 0
+
+            # ── Stagnation detection: consecutive coder failures → pivot ──
+            recent_tasks = self.completed_tasks[-3:] if len(self.completed_tasks) >= 3 else []
+            consecutive_coder_fails = 0
+            for t in reversed(recent_tasks):
+                if t.get("worker") == "coder" and not t.get("success"):
+                    consecutive_coder_fails += 1
+                else:
+                    break
+            if consecutive_coder_fails >= 2 and action_type in ("implement", "write_code", "fix_code"):
+                print(f"  [Supervisor] Stagnation: {consecutive_coder_fails} consecutive coder failures → pivoting to reviewer")
+                action = {"action": "benchmark",
+                          "task": f"Evaluate whatever results exist so far for: {self.direction}. "
+                                  "Load any result JSON files, compute statistics, create figures. "
+                                  "If no results exist, report that and summarize literature findings.",
+                          "reason": "Consecutive coder failures — pivot to evaluation"}
+                action_type = "benchmark"
+
+            # R20 fix: prevent re-dispatching tasks that already failed 2+ times
+            if action_type in ("implement", "write_code", "fix_code"):
+                proposed_task = action.get("task", "")
+                if proposed_task:
+                    task_prefix = proposed_task[:100]
+                    past_fails = sum(
+                        1 for ct in self.completed_tasks
+                        if not ct.get("success")
+                        and ct.get("task", "")[:100] == task_prefix
+                    )
+                    if past_fails >= 2:
+                        print(f"  [Supervisor] SKIP repeated failure ({past_fails}x): {proposed_task[:60]}...")
+                        # Try the next queued task instead, or skip to reviewer
+                        alt_task = self._pop_queue_task("coder")
+                        if alt_task and alt_task[:100] != task_prefix:
+                            action = {"action": "implement", "task": alt_task,
+                                      "reason": "Skipped repeated failure, trying next task"}
+                        else:
+                            action = {"action": "benchmark",
+                                      "task": f"Evaluate whatever results exist so far for: {self.direction}. "
+                                              "Load any result JSON files, compute statistics, create figures.",
+                                      "reason": "All coder tasks failing — pivot to evaluation"}
+                            action_type = "benchmark"
 
             # ── Hard guard: block premature "done" ────────────
             if action_type == "done":
@@ -447,7 +620,9 @@ class Supervisor:
                         except Exception:
                             continue
 
-                if not has_code:
+                if self.literature_only:
+                    pass  # Literature-only mode: no code/eval requirements
+                elif not has_code:
                     print(f"  [Supervisor] BLOCKED 'done' — no code written yet!")
                     action = {"action": "implement",
                               "task": f"Implement: {self.direction}",
@@ -485,13 +660,27 @@ class Supervisor:
                 if self.evolution_store:
                     try:
                         print(f"  [Evolution] Reflecting on mission...")
+                        mid = self.mission_ctx.mission_id if self.mission_ctx else ""
                         self.evolution_store.reflect_on_mission(
-                            mission_id=self.mission_ctx.mission_id if self.mission_ctx else "",
+                            mission_id=mid,
                             goal=self.goal,
                             tasks=self.completed_tasks,
                             dag=self.insight_dag,
                             llm=self.llm,
                         )
+                        # Extract research findings from workspace
+                        ws = self.mission_ctx.workspace_dir if self.mission_ctx else ""
+                        if ws:
+                            n = self.evolution_store.extract_research_findings(mid, self.goal, ws)
+                            if n:
+                                print(f"  [Evolution] Extracted {n} research findings")
+                        # Extract hypothesis chain as cross-mission knowledge
+                        if self.hypothesis_gen.history:
+                            chain_dicts = [r.to_dict() for r in self.hypothesis_gen.history]
+                            self.evolution_store.extract_hypothesis_chain(mid, self.goal, chain_dicts)
+                            evaluated = sum(1 for r in self.hypothesis_gen.history if r.outcome != "untested")
+                            if evaluated:
+                                print(f"  [Evolution] Stored {evaluated} evaluated hypotheses")
                         print(f"  [Evolution] Learnings saved ({len(self.evolution_store.learnings)} total)")
                     except Exception as e:
                         print(f"  [Evolution] Reflection failed: {e}")
@@ -510,22 +699,38 @@ class Supervisor:
                 self._dispatch_worker("explorer", task_desc)
 
             elif action_type in ("implement", "write_code"):
-                task_desc = self._pop_queue_task("coder") or action.get("task", f"Implement: {self.direction}")
-                self._dispatch_worker("coder", task_desc)
+                if self.literature_only:
+                    # Redirect to explorer in literature-only mode
+                    task_desc = self._pop_queue_task("explorer") or f"Search for more papers on: {self.direction}"
+                    self._dispatch_worker("explorer", task_desc)
+                else:
+                    task_desc = self._pop_queue_task("coder") or action.get("task", f"Implement: {self.direction}")
+                    self._try_parallel_dispatch("coder", task_desc)
 
             elif action_type == "fix_code":
-                error_ctx = action.get("error_context", "")
-                task_desc = action.get("task", f"Fix the code. Error: {error_ctx}")
-                self._dispatch_worker("coder", task_desc)
+                if self.literature_only:
+                    task_desc = self._pop_queue_task("explorer") or f"Search for more papers on: {self.direction}"
+                    self._dispatch_worker("explorer", task_desc)
+                else:
+                    error_ctx = action.get("error_context", "")
+                    task_desc = action.get("task", f"Fix the code. Error: {error_ctx}")
+                    self._dispatch_worker("coder", task_desc)
 
             elif action_type in ("benchmark", "evaluate", "review"):
-                task_desc = self._pop_queue_task("reviewer") or action.get("task", f"Evaluate results for: {self.direction}")
-                self._dispatch_worker("reviewer", task_desc)
+                if self.literature_only:
+                    task_desc = self._pop_queue_task("explorer") or f"Summarize all findings for: {self.direction}"
+                    self._dispatch_worker("explorer", task_desc)
+                else:
+                    task_desc = self._pop_queue_task("reviewer") or action.get("task", f"Evaluate results for: {self.direction}")
+                    self._try_parallel_dispatch("reviewer", task_desc)
 
             elif action_type == "improve":
                 worker = action.get("worker", "coder")
                 task_desc = self._pop_queue_task(worker) or action.get("task", f"Improve implementation for: {self.direction}")
                 self._dispatch_worker(worker, task_desc)
+
+            elif action_type == "backtrack":
+                self._tree_backtrack(action.get("reason", ""))
 
             elif action_type == "replan":
                 self.agent_state = AgentState.PLANNING
@@ -604,17 +809,42 @@ class Supervisor:
         self._cleanup_workspace_processes()
         self._print_footer()
 
+        # Close evolution store feedback loop (R20.2)
+        if self.evolution_store:
+            try:
+                # Determine if mission was successful (grade A/B = helpful)
+                success_tasks = sum(1 for t in self.completed_tasks if t.get("success"))
+                total_tasks = max(len(self.completed_tasks), 1)
+                was_helpful = (success_tasks / total_tasks) >= 0.5
+                self.evolution_store.record_applied_learnings(was_helpful)
+            except Exception as e:
+                print(f"  [Evolution] Feedback recording failed: {e}")
+
         # Post-mission evolution reflection
         if self.evolution_store:
             try:
                 print(f"  [Evolution] Reflecting on mission...")
+                mid = self.mission_ctx.mission_id if self.mission_ctx else ""
                 self.evolution_store.reflect_on_mission(
-                    mission_id=self.mission_ctx.mission_id if self.mission_ctx else "",
+                    mission_id=mid,
                     goal=self.goal,
                     tasks=self.completed_tasks,
                     dag=self.insight_dag,
                     llm=self.llm,
                 )
+                # Extract research findings from workspace
+                ws = self.mission_ctx.workspace_dir if self.mission_ctx else ""
+                if ws:
+                    n = self.evolution_store.extract_research_findings(mid, self.goal, ws)
+                    if n:
+                        print(f"  [Evolution] Extracted {n} research findings")
+                # Extract hypothesis chain as cross-mission knowledge
+                if self.hypothesis_gen.history:
+                    chain_dicts = [r.to_dict() for r in self.hypothesis_gen.history]
+                    self.evolution_store.extract_hypothesis_chain(mid, self.goal, chain_dicts)
+                    evaluated = sum(1 for r in self.hypothesis_gen.history if r.outcome != "untested")
+                    if evaluated:
+                        print(f"  [Evolution] Stored {evaluated} evaluated hypotheses")
                 print(f"  [Evolution] Learnings saved ({len(self.evolution_store.learnings)} total)")
             except Exception as e:
                 print(f"  [Evolution] Reflection failed: {e}")
@@ -720,6 +950,134 @@ class Supervisor:
                 lines.append(f"  → Better: {f['better_action'][:80]}")
         return "\n".join(lines)
 
+    def _format_hypotheses_for_prompt(self) -> str:
+        """Format pending hypotheses for supervisor decision prompt."""
+        if not self._pending_hypotheses or not self._pending_hypotheses.hypotheses:
+            return ""
+        return self.hypothesis_gen.format_for_supervisor(self._pending_hypotheses)
+
+    # ══════════════════════════════════════════════════════════════════
+    #  RESEARCH TREE — Progressive Branch Search (Round 17)
+    # ══════════════════════════════════════════════════════════════════
+
+    def _format_tree_for_prompt(self) -> str:
+        """Format research tree state for supervisor decision prompt."""
+        if not self.research_tree or len(self.research_tree.nodes) <= 1:
+            return ""
+        tree_summary = self.research_tree.get_tree_summary()
+        branch_ctx = ""
+        if self._active_branch_id:
+            branch_ctx = self.research_tree.get_branch_context(self._active_branch_id)
+        parts = [tree_summary]
+        if branch_ctx:
+            parts.append(branch_ctx)
+        # Backtracking advisory
+        if (self._active_branch_id and
+                self.research_tree.should_backtrack(self._active_branch_id)):
+            parts.append('\n⚠️ Current branch scores below parent — consider "backtrack".')
+        return "\n".join(parts)
+
+    def _tree_backtrack(self, reason: str = ""):
+        """Backtrack: prune current branch, select next via UCB1."""
+        if not self.research_tree or not self._active_branch_id:
+            print(f"  [Tree] No active branch to backtrack from")
+            return
+
+        current = self.research_tree.nodes.get(self._active_branch_id)
+        if current:
+            print(f"  [Tree] Pruning branch: {current.hypothesis[:60]} "
+                  f"(score: {current.score:.2f})")
+            self.research_tree.prune(self._active_branch_id)
+
+        # Select next branch via UCB1
+        next_branch = self.research_tree.select_next()
+        if next_branch:
+            next_branch.status = "exploring"
+            self._active_branch_id = next_branch.id
+            print(f"  [Tree] Switching to: {next_branch.hypothesis[:60]}")
+            # Queue an exploration task for the new branch
+            self.task_queue.insert(0, {
+                "worker": "coder",
+                "task": (f"Test hypothesis: {next_branch.hypothesis}. "
+                         f"Approach: {next_branch.approach or 'implement and evaluate'}"),
+                "priority": 0,
+                "depends_on": [],
+                "source": "tree_backtrack",
+            })
+        else:
+            print(f"  [Tree] No more branches to explore")
+
+    def _tree_update_after_result(self, worker_name: str, result: dict):
+        """Update research tree after worker completes."""
+        if not self.research_tree or not self._active_branch_id:
+            return
+        if worker_name not in ("coder", "reviewer"):
+            return
+
+        # Compute score from result
+        score = 0.0
+        if result.get("success"):
+            score = 0.5  # Base success score
+            # Boost from verification
+            vs = result.get("verification_score")
+            if vs is not None:
+                score = max(score, vs * 0.7)
+            # Boost from metrics in output
+            output = result.get("output", "")
+            if any(k in output.lower() for k in ("accuracy", "f1", "loss", "p_value")):
+                score += 0.2
+        else:
+            score = 0.1  # Failure gets minimal score
+
+        self.research_tree.update_score(
+            self._active_branch_id, min(1.0, score),
+            cycle=self.cycle,
+        )
+
+        # Track debug depth: reset on success, increment on failure
+        if result.get("success"):
+            self.research_tree.reset_debug_depth(self._active_branch_id)
+        else:
+            still_alive = self.research_tree.increment_debug_depth(self._active_branch_id)
+            if not still_alive:
+                # Debug depth cap reached — select next branch
+                print(f"  [Tree] Debug cap reached, selecting next branch")
+                next_node = self.research_tree.select_next()
+                if next_node:
+                    next_node.status = "exploring"
+                    self._active_branch_id = next_node.id
+                    print(f"  [Tree] Switched to: {next_node.hypothesis[:60]}")
+
+        node = self.research_tree.nodes.get(self._active_branch_id)
+        if node:
+            print(f"  [Tree] Branch score: {node.score:.2f} "
+                  f"(visits: {node.visits}, depth: {node.depth}, "
+                  f"debug: {node.debug_depth})")
+
+    def _tree_expand_from_hypotheses(self, hypotheses: list):
+        """Expand tree when new hypotheses are generated."""
+        if not self.research_tree or not self._active_branch_id:
+            return
+
+        children = []
+        for h in hypotheses[:3]:  # Max 3 children
+            children.append({
+                "claim": h.claim,
+                "approach": h.experiment if hasattr(h, 'experiment') else "",
+            })
+
+        if children:
+            new_ids = self.research_tree.expand(self._active_branch_id, children)
+            if new_ids:
+                # Mark current branch as completed (it produced children)
+                self.research_tree.complete(self._active_branch_id)
+                # Switch to first child (highest priority hypothesis)
+                first_child = self.research_tree.nodes[new_ids[0]]
+                first_child.status = "exploring"
+                self._active_branch_id = new_ids[0]
+                print(f"  [Tree] Expanded {len(new_ids)} branches from current. "
+                      f"Now exploring: {first_child.hypothesis[:60]}")
+
     # ══════════════════════════════════════════════════════════════════
     #  FAILURE ANALYSIS (Round 13)
     # ══════════════════════════════════════════════════════════════════
@@ -771,9 +1129,15 @@ class Supervisor:
         print(f"  [FailureAnalyzer] → {analysis.next_action}"
               + (f": {analysis.modification[:80]}" if analysis.modification else ""))
 
+        # ── Build reflexion context if multiple failures ─────
+        from core.failure_analyzer import build_reflexion_context
+        reflexion = build_reflexion_context(task_desc, self.completed_tasks)
+
         # ── Inject corrective action into queue ──────────────
         if analysis.next_action == "retry_modified" and analysis.modification:
             modified_task = f"{task_desc}\n\nIMPORTANT FIX: {analysis.modification}"
+            if reflexion:
+                modified_task = f"{task_desc}\n\n{reflexion}\n\nLATEST FIX: {analysis.modification}"
             self.task_queue.insert(0, {
                 "worker": worker_name,
                 "task": modified_task,
@@ -782,19 +1146,42 @@ class Supervisor:
                 "status": "pending",
                 "source": "failure_analyzer",
             })
-            print(f"  [FailureAnalyzer] Queued modified retry")
+            print(f"  [FailureAnalyzer] Queued modified retry"
+                  + (f" (with {len(reflexion.splitlines())}-line reflexion)" if reflexion else ""))
 
-        elif analysis.next_action == "decompose" and analysis.subtasks:
-            for i, subtask in enumerate(analysis.subtasks):
-                self.task_queue.insert(i, {
+        elif analysis.next_action == "decompose":
+            if analysis.subtasks:
+                for i, subtask in enumerate(analysis.subtasks):
+                    # Inject reflexion into first subtask so context carries over
+                    enriched = f"{subtask}\n\n{reflexion}" if (i == 0 and reflexion) else subtask
+                    self.task_queue.insert(i, {
+                        "worker": worker_name,
+                        "task": enriched,
+                        "priority": i,
+                        "depends_on": [],
+                        "status": "pending",
+                        "source": "failure_analyzer",
+                    })
+                print(f"  [FailureAnalyzer] Decomposed into {len(analysis.subtasks)} subtasks")
+            elif "timeout" in (error or "").lower() or "timeout" in analysis.root_cause.lower():
+                # Timeout with no subtasks — auto-modify task to be smaller
+                timeout_fix = (
+                    f"{task_desc}\n\n"
+                    "CRITICAL: Previous attempt TIMED OUT (600s limit). You MUST:\n"
+                    "- Reduce to 1 epoch (not 2-3)\n"
+                    "- Use only 1000 samples (not 2000)\n"
+                    "- Use smallest model variant available\n"
+                    "- Save results to JSON after EACH seed (not all at end)"
+                )
+                self.task_queue.insert(0, {
                     "worker": worker_name,
-                    "task": subtask,
-                    "priority": i,
+                    "task": timeout_fix,
+                    "priority": 0,
                     "depends_on": [],
                     "status": "pending",
-                    "source": "failure_analyzer",
+                    "source": "failure_analyzer_timeout",
                 })
-            print(f"  [FailureAnalyzer] Decomposed into {len(analysis.subtasks)} subtasks")
+                print(f"  [FailureAnalyzer] Timeout → queued reduced-scope retry")
 
         elif analysis.next_action == "switch_worker":
             alt_worker = "coder" if worker_name != "coder" else "reviewer"
@@ -820,6 +1207,30 @@ class Supervisor:
                 })
                 print(f"  [FailureAnalyzer] Queued env patch")
 
+        elif analysis.next_action == "simplify":
+            simplify_directive = (
+                f"{task_desc}\n\n"
+                "⚠️ SIMPLIFICATION REQUIRED — previous approaches failed repeatedly.\n"
+                f"Diagnosis: {analysis.root_cause}\n"
+                "You MUST simplify:\n"
+                "- Use raw PyTorch training loop instead of HuggingFace Trainer\n"
+                "- Use the simplest model that works (e.g. nn.Linear, small CNN, or basic LSTM)\n"
+                "- If an architecture is fundamentally incompatible, use an alternative\n"
+                "- Reduce to bare minimum: 1 epoch, 500 samples, basic metrics\n"
+                "- Get SOMETHING working first, then improve\n"
+            )
+            if analysis.modification:
+                simplify_directive += f"- Specific fix: {analysis.modification}\n"
+            self.task_queue.insert(0, {
+                "worker": worker_name,
+                "task": simplify_directive,
+                "priority": 0,
+                "depends_on": [],
+                "status": "pending",
+                "source": "failure_analyzer_simplify",
+            })
+            print(f"  [FailureAnalyzer] Simplification directive queued")
+
         elif analysis.next_action == "abort_branch":
             print(f"  [FailureAnalyzer] Branch aborted — will not retry this task")
 
@@ -832,6 +1243,99 @@ class Supervisor:
             "root_cause": analysis.root_cause,
             "better_action": analysis.modification or analysis.next_action,
         })
+
+    # ══════════════════════════════════════════════════════════════════
+    #  LIVE TERMINAL — USER MESSAGE HANDLING
+    # ══════════════════════════════════════════════════════════════════
+
+    def _check_live_messages(self):
+        """Check for user messages from the live terminal (called each cycle)."""
+        if not self.message_bus:
+            return
+
+        messages = self.message_bus.check_user_messages()
+        for msg in messages:
+            if msg.msg_type == "abort":
+                print(f"  [Supervisor] User requested abort — finishing up")
+                self.agent_state = AgentState.FINISHED
+                self.max_cycles = self.cycle  # Stop after this cycle
+
+            elif msg.msg_type == "direction":
+                print(f"  [Supervisor] User direction: {msg.text[:100]}")
+                self.direction = msg.text
+                # Add to working memory so the LLM sees it
+                self.knowledge.update(
+                    key="user_direction",
+                    category="context",
+                    data={"direction": msg.text, "cycle": self.cycle},
+                )
+                # Trigger replan if tasks remain
+                if self.task_queue:
+                    self._replan(reason=f"User changed direction: {msg.text}")
+
+            elif msg.msg_type == "command":
+                self._handle_user_command(msg)
+
+            elif msg.msg_type == "chat":
+                self._handle_user_chat(msg)
+
+    def _handle_user_command(self, msg):
+        """Handle /commands from the user."""
+        if "/status" in msg.text:
+            status = (
+                f"Cycle {self.cycle}/{self.max_cycles} | "
+                f"Queue: {len(self.task_queue)} tasks | "
+                f"Done: {len(self.completed_tasks)} | "
+                f"Errors: {len(self.errors)}"
+            )
+            if self.task_queue:
+                next_task = self.task_queue[0]
+                status += f"\nNext: [{next_task.get('worker')}] {str(next_task.get('task', ''))[:80]}"
+
+            if self.message_bus:
+                from terminal.message_bus import DisplayEvent
+                self.message_bus.emit(DisplayEvent(
+                    source="opus", event_type="status",
+                    content=status,
+                ))
+
+    def _handle_user_chat(self, msg):
+        """Handle free-text chat from the user. Answer from working memory."""
+        # Add user message as context for this cycle
+        self.knowledge.update(
+            key="user_message",
+            category="context",
+            data={"message": msg.text, "cycle": self.cycle},
+        )
+
+        # Quick LLM response using working memory
+        try:
+            wm = self.knowledge.to_report()
+            context = wm[:3000] if wm else "No research data yet."
+
+            response = self.llm.chat([
+                {"role": "system", "content":
+                    "You are Opus, a research agent mid-mission. "
+                    "Answer the user's question based on current research progress. "
+                    "Be concise (1-3 sentences). Use data from your current findings."},
+                {"role": "user", "content":
+                    f"Current research state:\n{context}\n\n"
+                    f"User asks: {msg.text}"},
+            ])
+            answer = response["choices"][0]["message"]["content"]
+
+            # Strip thinking tags
+            from core.llm import strip_think
+            answer = strip_think(answer)
+
+            if self.message_bus:
+                from terminal.message_bus import DisplayEvent
+                self.message_bus.emit(DisplayEvent(
+                    source="opus", event_type="status",
+                    content=answer,
+                ))
+        except Exception as e:
+            print(f"  [Supervisor] Failed to answer user: {e}")
 
     # ══════════════════════════════════════════════════════════════════
     #  MEMORY DISTILLATION SYSTEM
@@ -1128,6 +1632,12 @@ Write the working_memory as bullet points. Be concise but complete."""
 ## Active Friction (failure diagnoses — adapt your strategy)
 {self._format_friction_buffer()}
 
+{self.process_reward.format_for_prompt()}
+
+{self._format_hypotheses_for_prompt()}
+
+{self._format_tree_for_prompt()}
+
 ## Knowledge Base
 - Total: {knowledge_stats['total_items']} items
 - By category: {json.dumps(knowledge_stats['by_category'], default=str)}
@@ -1142,6 +1652,7 @@ Choose ONE action:
 - "benchmark": Evaluate/benchmark results.
 - "improve": Results not good enough. Specify what.
 - "replan": Current approach isn't working.
+- "backtrack": Current research branch is a dead end. Return to parent and try a sibling.
 - "report": Meaningful progress — write interim report.
 - "done": FULLY achieved — has papers + code + experiments + results.
 
@@ -1151,8 +1662,10 @@ Choose ONE action:
 - If code failed ONCE → "fix_code" (with specific error context)
 - If same code failed TWICE → "replan" (the approach is wrong, not just a bug)
 - If results poor → "improve" or "search_more"
-- "done" = papers + code + tests + results analyzed
+- "done" = papers + code + tests + results analyzed with 5 seeds
 - Prefer executing queued tasks over generating new ones
+- Each condition MUST have 5 seeds (42, 123, 456, 789, 1024) — 3 seeds is NOT enough
+- If analysis_summary.json exists with p_value + effect size → you can choose "done"
 
 ## Research Quality Rules (CRITICAL)
 When evaluating if the current direction is working, watch for these failure patterns:
@@ -1185,14 +1698,25 @@ Respond with ONLY JSON:
         except Exception as e:
             print(f"  [Supervisor] Reflection failed: {e}")
 
-        # Fallback
+        # Fallback: if reflection fails, execute next queued task instead of giving up
         if not self.completed_tasks:
-            return {"action": "search_more", "task": self.direction, "reason": "fallback"}
-        return {"action": "done", "reason": "reflection failed, ending gracefully"}
+            return {"action": "search_more", "task": self.direction, "reason": "fallback — no tasks done yet"}
+        if self.task_queue:
+            next_task = self.task_queue[0]
+            worker = next_task.get("worker", "coder")
+            action_map = {"explorer": "search_more", "coder": "implement", "reviewer": "benchmark"}
+            return {
+                "action": action_map.get(worker, "implement"),
+                "task": next_task.get("task", self.direction),
+                "worker": worker,
+                "reason": f"fallback — reflection failed, executing next queued task",
+            }
+        return {"action": "done", "reason": "reflection failed and no tasks queued"}
 
     def _pop_queue_task(self, worker_name: str) -> str:
         """Pop the next matching task from the planner's queue for this worker.
-        Respects priority ordering. Returns the task description, or empty string if no match."""
+        Respects priority ordering. Skips tasks attempted 3+ times (anti-stagnation).
+        Returns the task description, or empty string if no match."""
         best_idx = None
         best_priority = float('inf')
         for i, t in enumerate(self.task_queue):
@@ -1204,10 +1728,77 @@ Respond with ONLY JSON:
         if best_idx is not None:
             task = self.task_queue.pop(best_idx)
             desc = task.get("task", "")
+
+            # Anti-stagnation: skip if same task prefix attempted 3+ times
             if desc:
+                task_prefix = desc[:100]
+                attempts = sum(
+                    1 for ct in self.completed_tasks
+                    if ct.get("task", "")[:100] == task_prefix
+                )
+                if attempts >= 3:
+                    print(f"  [Supervisor] SKIP stale task (attempted {attempts}x): {desc[:80]}...")
+                    return self._pop_queue_task(worker_name)  # try next task
                 print(f"  [Supervisor] Using planned task from queue (priority {best_priority})")
             return desc
         return ""
+
+    # ── Parallel dispatch ─────────────────────────────────────────────
+
+    def _try_parallel_dispatch(self, primary_worker: str, primary_task: str):
+        """Run primary task + an independent explorer task in parallel.
+
+        Only parallelizes explorer with coder/reviewer (never coder+reviewer,
+        as both write workspace files). Explorer is safe because it only
+        reads external APIs.
+
+        Returns after both tasks complete. The cycle count increments by 1
+        but two tasks are done — effectively 2x throughput for that cycle.
+        """
+        # Only parallelize if primary is NOT explorer (avoid 2 explorers)
+        if primary_worker == "explorer":
+            self._dispatch_worker(primary_worker, primary_task)
+            return
+
+        # Check queue for an independent explorer task
+        explorer_task = None
+        for i, t in enumerate(self.task_queue):
+            if t.get("worker") == "explorer":
+                explorer_task = self.task_queue.pop(i)
+                break
+
+        if not explorer_task:
+            # No parallel opportunity — dispatch normally
+            self._dispatch_worker(primary_worker, primary_task)
+            return
+
+        explorer_desc = explorer_task.get("task", self.direction)
+        print(f"  [Supervisor] ⚡ PARALLEL: {primary_worker} + explorer")
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import threading
+
+        # Each worker needs its own context built on the main thread
+        # (reading shared state is safe, writing happens inside _dispatch_worker)
+        results = {}
+
+        def run_primary():
+            self._dispatch_worker(primary_worker, primary_task)
+
+        def run_explorer():
+            self._dispatch_worker("explorer", explorer_desc)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = {
+                executor.submit(run_primary): primary_worker,
+                executor.submit(run_explorer): "explorer",
+            }
+            for future in as_completed(futures):
+                name = futures[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    print(f"  [Supervisor] Parallel {name} error: {e}")
 
     # ── Worker dispatch ──────────────────────────────────────────────
 
@@ -1265,10 +1856,23 @@ Respond with ONLY JSON:
             if ws_summary:
                 context_parts.append(ws_summary)
 
+        # Inject task-specific policies from catalog (Round 13)
+        from core.policy_selector import get_policy_prompt
+        friction = self._friction_buffer if hasattr(self, '_friction_buffer') else []
+        policy_prompt = get_policy_prompt(task_desc, worker_name, friction)
+        if policy_prompt:
+            context_parts.append(policy_prompt)
+
         context = "\n\n".join(context_parts)
 
         result = worker.run(task_desc, context=context)
 
+        # ── Thread-safe state mutations (for parallel dispatch) ──
+        with self._dispatch_lock:
+            self._process_worker_result(worker_name, worker, task_desc, result)
+
+    def _process_worker_result(self, worker_name: str, worker, task_desc: str, result: dict):
+        """Process worker result — must be called under _dispatch_lock."""
         # ── Handle pushback: worker refused the task ──────────
         if result.get("pushback"):
             reasoning = result.get("pushback_reasoning", "")
@@ -1327,11 +1931,247 @@ Respond with ONLY JSON:
             self._consecutive_failures[worker_name] = \
                 self._consecutive_failures.get(worker_name, 0) + 1
             fail_count = self._consecutive_failures[worker_name]
-            if fail_count >= 2:
+            if fail_count >= 3:
+                # Hard skip: remove all queued tasks from same worker to avoid infinite retry
+                before = len(self.task_queue)
+                self.task_queue = [t for t in self.task_queue
+                                   if t.get("worker") != worker_name
+                                   or t.get("source") != "failure_analyzer_timeout"]
+                skipped = before - len(self.task_queue)
+                print(f"  [Supervisor] SKIP: {worker_name} failed {fail_count}x — removing {skipped} retry tasks, moving on")
+                self._consecutive_failures[worker_name] = 0
+            elif fail_count >= 2:
                 print(f"  [Supervisor] WARNING: {worker_name} has failed {fail_count}x — will try different approach")
+
+        # ── Research Tree: update branch score ─────────────
+        self._tree_update_after_result(worker_name, result)
+
+        # ── Process Reward: score this cycle ────────────────
+        try:
+            import os, glob
+            ws = self.mission_ctx.workspace_dir if self.mission_ctx else ""
+            ws_files = []
+            if ws and os.path.isdir(ws):
+                ws_files = [os.path.basename(f) for f in glob.glob(os.path.join(ws, '*'))
+                            if '__pycache__' not in f]
+            cr = self.process_reward.score_cycle(
+                self.cycle, worker_name, task_desc, result, ws_files)
+            if cr.reward > 0.3:
+                print(f"  [Reward] +{cr.reward:.2f} ({', '.join(cr.components.keys())})")
+            elif cr.reward < -0.1:
+                print(f"  [Reward] {cr.reward:.2f} — progress stalling")
+        except Exception as e:
+            print(f"  [Reward] scoring failed: {e}")
+
+        # ── Explorer depth check: if too few papers, auto-queue more search ──
+        if result.get("success") and worker_name == "explorer":
+            self._check_explorer_depth(result, task_desc)
+
+        # ── Hypothesis Generation: after reviewer produces results ──
+        if result.get("success") and worker_name == "reviewer":
+            self._generate_hypotheses(result)
 
         # Always extract insight, whether success or failure
         self._extract_insight(worker_name, task_desc, result)
+
+    # ── Explorer Depth Check ─────────────────────────────────────────
+
+    def _check_explorer_depth(self, result: dict, task_desc: str):
+        """After explorer finishes, check if enough papers were found.
+        If <5 unique papers and cycles remain, auto-queue ONE deeper search.
+        Max 1 expansion (to avoid wasting cycles on repeated explorer tasks)."""
+        output = result.get("output", "")
+        if not output:
+            return
+
+        # Count unique papers using multiple heuristics
+        import re
+        paper_markers = re.findall(r'###\s*\d+\.', output)
+        et_al_count = output.count("et al")
+        title_count = len(re.findall(r'\*\*Title\*\*|\btitle\b.*:', output, re.IGNORECASE))
+        # Also detect table rows with arXiv IDs or year numbers (common in paper tables)
+        arxiv_ids = len(re.findall(r'\d{4}\.\d{4,5}', output))
+        # Bold titles in table rows: | **Title Here** |
+        bold_in_table = len(re.findall(r'\|\s*\*\*[^|]+\*\*\s*\|', output))
+        paper_count = max(len(paper_markers), et_al_count, title_count, arxiv_ids, bold_in_table)
+
+        # Track how many depth expansions have already been done (max 1)
+        if not hasattr(self, '_explorer_depth_expansions'):
+            self._explorer_depth_expansions = 0
+
+        # Check if we already have a queued explorer deepening task
+        has_queued_explorer = any(
+            t.get("worker") == "explorer" and t.get("source") == "depth_check"
+            for t in self.task_queue
+        )
+
+        if (paper_count < 5 and not has_queued_explorer
+                and self._explorer_depth_expansions < 1
+                and self.cycle < self.max_cycles - 2):
+            self._explorer_depth_expansions += 1
+            print(f"  [Supervisor] Explorer found only ~{paper_count} papers, queueing deeper search (expansion {self._explorer_depth_expansions}/1)")
+            self.task_queue.insert(0, {
+                "worker": "explorer",
+                "task": (f"EXPAND literature: Previous search found only {paper_count} papers. "
+                         f"Use get_citation_graph on the best paper found to discover more related work. "
+                         f"Try different search queries and synonyms for: {self.direction}. "
+                         f"Use web_search for recent blog posts and discussions. "
+                         f"Target: find at least {8 - paper_count} MORE unique papers."),
+                "priority": 0,
+                "depends_on": [],
+                "status": "pending",
+                "source": "depth_check",
+            })
+
+    # ── Hypothesis Generation ────────────────────────────────────────
+
+    def _generate_hypotheses(self, reviewer_result: dict):
+        """Generate research hypotheses after reviewer produces results.
+
+        Key feature: hypothesis chaining — new hypotheses build on previous
+        confirmed/refuted ones, creating a research narrative.
+        """
+        try:
+            output = reviewer_result.get("output", "")
+            if len(output) < 100:
+                return  # Too little to reason about
+
+            # ── Step 1: Auto-evaluate previous hypotheses against new results ──
+            self._evaluate_pending_hypotheses(output)
+
+            # Build results summary from execution log + reviewer output
+            results_summary = output[:3000]
+            if self.execution_log:
+                exec_summary = self.execution_log.get_summary_for_prompt()
+                if exec_summary:
+                    results_summary = f"{exec_summary}\n\n## Reviewer Analysis\n{output[:2000]}"
+
+            # Literature context from knowledge tree
+            lit_context = ""
+            try:
+                lit_raw = self.knowledge.get_summary(depth=1)
+                if isinstance(lit_raw, dict):
+                    lit_context = json.dumps(lit_raw, ensure_ascii=False, default=str)[:1500]
+                else:
+                    lit_context = str(lit_raw)[:1500]
+            except Exception:
+                pass
+
+            print(f"  [HypothesisGen] Analyzing results for follow-up hypotheses "
+                  f"(chain depth: {len(self.hypothesis_gen.history)})...")
+            hyp_result = self.hypothesis_gen.generate(
+                goal=self.goal,
+                results_summary=results_summary,
+                literature_context=lit_context,
+                working_memory=self.working_memory,
+            )
+
+            if not hyp_result.hypotheses:
+                print(f"  [HypothesisGen] No hypotheses generated")
+                return
+
+            self._pending_hypotheses = hyp_result
+
+            # ── Step 2: Record new hypotheses as untested ──
+            for h in hyp_result.hypotheses[:3]:
+                from core.hypothesis_generator import HypothesisRecord
+                self.hypothesis_gen.history.append(HypothesisRecord(
+                    hypothesis=h, outcome="untested", cycle=self.cycle,
+                ))
+
+            # Print hypotheses
+            chain_depth = len(self.hypothesis_gen.history)
+            for i, h in enumerate(hyp_result.hypotheses[:3]):
+                tag = " [not testable]" if not h.testable else ""
+                print(f"  [HypothesisGen] H{chain_depth-2+i}: {h.claim[:120]}{tag}")
+
+            if hyp_result.validity_concerns:
+                print(f"  [HypothesisGen] Concerns: {'; '.join(hyp_result.validity_concerns[:2])}")
+
+            # Queue the recommended follow-up as a high-priority task
+            # But only if enough cycles remain (need ≥3: follow-up + reviewer + report)
+            remaining_cycles = self.max_cycles - self.cycle
+            if hyp_result.recommended_next and remaining_cycles >= 4:
+                follow_up_task = {
+                    "worker": "coder",
+                    "task": hyp_result.recommended_next,
+                    "priority": 1,  # High priority
+                    "depends_on": [],
+                    "source": "hypothesis_generator",
+                }
+                self.task_queue.insert(0, follow_up_task)
+                print(f"  [HypothesisGen] Queued follow-up: {hyp_result.recommended_next[:100]}")
+
+            # ── Expand research tree with new hypotheses ──
+            if hyp_result.hypotheses:
+                self._tree_expand_from_hypotheses(hyp_result.hypotheses)
+
+        except Exception as e:
+            print(f"  [HypothesisGen] Failed: {e}")
+
+    def _evaluate_pending_hypotheses(self, new_results: str):
+        """Auto-evaluate untested hypotheses against new results.
+
+        Uses a quick LLM call to check: did the new results confirm, refute,
+        or leave inconclusive any pending hypothesis?
+        """
+        untested = [r for r in self.hypothesis_gen.history if r.outcome == "untested"]
+        if not untested:
+            return
+
+        # Build evaluation prompt
+        hyp_list = "\n".join(
+            f"{i+1}. {r.hypothesis.claim} (expected: {r.hypothesis.expected_outcome[:80]})"
+            for i, r in enumerate(untested[-3:])  # Only evaluate recent 3
+        )
+
+        prompt = f"""Given these new experimental results, evaluate each hypothesis:
+
+## Pending Hypotheses
+{hyp_list}
+
+## New Results
+{new_results[:2000]}
+
+For each hypothesis, respond with JSON:
+```json
+[
+  {{"index": 1, "outcome": "confirmed|refuted|inconclusive", "evidence": "brief explanation referencing specific numbers"}}
+]
+```
+
+Rules:
+- "confirmed" = results support the claim (metrics match expected direction AND threshold)
+- "refuted" = results contradict the claim
+- "inconclusive" = results are ambiguous or don't test this hypothesis"""
+
+        try:
+            resp = self.llm.chat([
+                {"role": "system", "content": "Evaluate hypotheses against results. JSON only."},
+                {"role": "user", "content": prompt},
+            ])
+            from core.llm import strip_think
+            text = strip_think(resp["choices"][0]["message"]["content"])
+
+            # Parse
+            import re
+            json_match = re.search(r'\[[\s\S]*?\]', text)
+            if json_match:
+                evaluations = json.loads(json_match.group())
+                recent_untested = untested[-3:]
+                for ev in evaluations:
+                    idx = ev.get("index", 0) - 1
+                    if 0 <= idx < len(recent_untested):
+                        rec = recent_untested[idx]
+                        outcome = ev.get("outcome", "inconclusive")
+                        if outcome in ("confirmed", "refuted", "inconclusive"):
+                            rec.outcome = outcome
+                            rec.evidence = ev.get("evidence", "")[:200]
+                            rec.cycle = self.cycle
+                            icon = {"confirmed": "✓", "refuted": "✗", "inconclusive": "~"}[outcome]
+                            print(f"  [HypothesisGen] {icon} H evaluated: {rec.hypothesis.claim[:80]} → {outcome}")
+        except Exception as e:
+            print(f"  [HypothesisGen] Evaluation failed: {e}")
 
     # ── Planning ─────────────────────────────────────────────────────
 
@@ -1355,26 +2195,106 @@ Respond with ONLY JSON:
                     "summary": other_tree.get_summary(depth=1),
                 })
 
-        # Get evolution guidance and quality rules
+        # Get evolution guidance, research context, and quality rules
         evolution_guidance = ""
         if self.evolution_store:
             evolution_guidance = self.evolution_store.get_planner_guidance(self.direction)
+            research_ctx = self.evolution_store.get_research_context(self.direction)
+            if research_ctx:
+                evolution_guidance = (evolution_guidance + "\n\n" + research_ctx) if evolution_guidance else research_ctx
             if evolution_guidance:
                 print(f"  [Evolution] Injecting {len(self.evolution_store.get_relevant_learnings(self.direction))} learnings into planner")
         quality_rules = get_quality_rules(self.evolution_store, self.direction)
 
-        tasks = self.planner.decompose(
-            self.direction,
-            knowledge_summary=knowledge_summary,
-            available_workers=list(self.workers.keys()),
-            cross_knowledge=cross_knowledge,
-            evolution_guidance=evolution_guidance,
-            quality_rules=quality_rules,
-        )
+        # Inject validator notes (one-time, into planner only, not into direction)
+        validator_notes = ""
+        if self._design_verdict and self._design_verdict.issues:
+            notes = []
+            for iss in self._design_verdict.issues:
+                notes.append(f"[{iss.severity}] {iss.description} → {iss.fix}")
+            validator_notes = "\n## Design Validator Notes (consider but do not over-react to minor issues):\n" + "\n".join(notes)
+            if evolution_guidance:
+                evolution_guidance += "\n" + validator_notes
+            else:
+                evolution_guidance = validator_notes
+
+        if self.literature_only:
+            tasks = self._literature_only_plan()
+        else:
+            tasks = self.planner.decompose(
+                self.direction,
+                knowledge_summary=knowledge_summary,
+                available_workers=list(self.workers.keys()),
+                cross_knowledge=cross_knowledge,
+                evolution_guidance=evolution_guidance,
+                quality_rules=quality_rules,
+                max_cycles=self.max_cycles,
+            )
         self.task_queue = tasks
         print(f"  [Supervisor] Initial plan ({len(tasks)} tasks):")
         for i, t in enumerate(tasks):
             print(f"    {i+1}. [{t['worker']}] {t['task']}")
+
+    def _literature_only_plan(self) -> list[dict]:
+        """Generate explorer-only tasks for deep literature review mode.
+
+        Multiple iterative search rounds + hypothesis generation.
+        Each round searches different angles of the topic.
+        """
+        goal = self.direction
+        budget = min(self.max_cycles - 1, 6)  # Reserve 1 cycle for summary
+
+        tasks = [
+            {
+                "worker": "explorer",
+                "task": (f"ROUND 1 — Broad search: Search for academic papers on: {goal}. "
+                         "Search arxiv, semantic scholar, openalex, papers_with_code in parallel. "
+                         "Use get_citation_graph on the top paper to expand results. "
+                         "Find at least 8 unique papers with titles, authors, years, citation counts, key contributions."),
+                "priority": 1, "depends_on": [], "status": "pending",
+            },
+            {
+                "worker": "explorer",
+                "task": (f"ROUND 2 — Deep dive: Read the top 2-3 most cited papers from Round 1 using read_paper. "
+                         "Extract: methodology details, experimental setup, baselines compared, key results, limitations. "
+                         "Also use web_search to find blog posts, tutorials, or benchmark comparisons about: {goal}"),
+                "priority": 2, "depends_on": [1], "status": "pending",
+            },
+            {
+                "worker": "explorer",
+                "task": (f"ROUND 3 — Citation expansion: Use get_citation_graph on 2-3 papers from Round 1 "
+                         "to discover additional related work. Focus on: (a) papers that cite the core work (newer approaches), "
+                         "(b) papers referenced by the core work (foundational methods). "
+                         "Target: 15+ total unique papers across all rounds. "
+                         "Search for open-source implementations on GitHub."),
+                "priority": 3, "depends_on": [2], "status": "pending",
+            },
+        ]
+
+        if budget >= 4:
+            tasks.append({
+                "worker": "explorer",
+                "task": (f"ROUND 4 — Alternative angles: Search for related but different approaches to: {goal}. "
+                         "Try broader queries, synonyms, and adjacent research areas. "
+                         "Use web_search for recent developments not yet in academic databases. "
+                         "Read 1-2 more papers in depth. Target: 20+ total unique papers."),
+                "priority": 4, "depends_on": [3], "status": "pending",
+            })
+
+        if budget >= 5:
+            tasks.append({
+                "worker": "explorer",
+                "task": (f"ROUND 5 — Hypothesis generation: Based on ALL papers found across rounds, provide:\n"
+                         "1. COMPREHENSIVE PAPER TABLE: All papers found (20+), sorted by relevance, with citation counts\n"
+                         "2. TAXONOMY: Categorize approaches into 3-5 main families\n"
+                         "3. TIMELINE: How the field evolved (key milestones)\n"
+                         "4. RESEARCH GAPS: What hasn't been tried? What are the limitations?\n"
+                         "5. HYPOTHESES: Propose 3-5 concrete, testable research directions with expected impact\n"
+                         "6. RECOMMENDED EXPERIMENTS: For each hypothesis, what experiment would validate it?"),
+                "priority": 5, "depends_on": [4] if budget >= 4 else [3], "status": "pending",
+            })
+
+        return tasks
 
     def _replan(self, reason: str):
         """Re-decompose with knowledge of what's been done."""
@@ -1403,8 +2323,20 @@ Respond with ONLY JSON:
         evolution_guidance = ""
         if self.evolution_store:
             evolution_guidance = self.evolution_store.get_planner_guidance(self.direction)
+            research_ctx = self.evolution_store.get_research_context(self.direction)
+            if research_ctx:
+                evolution_guidance = (evolution_guidance + "\n\n" + research_ctx) if evolution_guidance else research_ctx
         quality_rules = get_quality_rules(self.evolution_store, self.direction)
 
+        # Inject friction buffer into quality rules so planner avoids known pitfalls
+        friction = getattr(self, '_friction_buffer', [])
+        if friction:
+            friction_lines = ["## Known Failures This Mission (avoid repeating)"]
+            for f in friction[-5:]:
+                friction_lines.append(f"- {f.get('trigger','?')}: {f.get('root_cause','')} → {f.get('better_action','')}")
+            quality_rules = quality_rules + "\n\n" + "\n".join(friction_lines)
+
+        remaining_cycles = self.max_cycles - self.cycle
         tasks = self.planner.decompose(
             self.direction,
             knowledge_summary=knowledge_summary,
@@ -1413,6 +2345,7 @@ Respond with ONLY JSON:
             cross_knowledge=cross_knowledge,
             evolution_guidance=evolution_guidance,
             quality_rules=quality_rules,
+            max_cycles=remaining_cycles,
         )
         self.task_queue = tasks
         print(f"  [Supervisor] New plan ({len(tasks)} tasks):")
@@ -1437,17 +2370,102 @@ Respond with ONLY JSON:
     # ── Reporting ────────────────────────────────────────────────────
 
     def _generate_report(self) -> str:
-        """Generate progress report with working memory included."""
+        """Generate progress report with working memory + hypothesis chain + data sanity."""
+        # Run data sanity check before report
+        wm = self.working_memory or ""
+        try:
+            from core.deterministic_verifier import DeterministicVerifier
+            verifier = DeterministicVerifier()
+            det_result = verifier.verify(self.workspace_dir)
+            fatal_issues = [i for i in det_result.issues
+                            if any(k in i for k in ("FATAL", "INVALID", "ABSURD", "BROKEN"))]
+            if fatal_issues:
+                warning = "\n\n## ⚠ DATA SANITY WARNINGS (from deterministic verifier)\n"
+                for issue in fatal_issues:
+                    warning += f"- **{issue}**\n"
+                warning += ("\nThese issues indicate fundamental experimental flaws. "
+                            "The report MUST acknowledge these problems honestly.\n")
+                wm = warning + wm
+                print(f"  [DataSanity] {len(fatal_issues)} fatal issues injected into report context")
+            elif det_result.issues:
+                # Non-fatal but noteworthy
+                minor = [i for i in det_result.issues if "SUSPICIOUS" in i or "NO_" in i]
+                if minor:
+                    note = "\n\n## Data Quality Notes\n"
+                    for issue in minor[:3]:
+                        note += f"- {issue}\n"
+                    wm = note + wm
+        except Exception as e:
+            print(f"  [DataSanity] Pre-report check failed: {e}")
+
+        # Inject research tree summary + hypothesis chain into working memory for report
+        if self.research_tree and len(self.research_tree.nodes) > 1:
+            wm = wm + "\n" + self.research_tree.get_tree_summary()
+        if self.hypothesis_gen.history:
+            chain_lines = ["\n## Research Hypothesis Chain"]
+            for rec in self.hypothesis_gen.history:
+                icon = {"confirmed": "✓", "refuted": "✗",
+                        "inconclusive": "~", "untested": "?"}.get(rec.outcome, "?")
+                chain_lines.append(f"- [{icon}] {rec.hypothesis.claim}")
+                if rec.evidence:
+                    chain_lines.append(f"  Evidence: {rec.evidence[:150]}")
+            wm = wm + "\n".join(chain_lines)
+
         return self.reporter.generate(
             goal=self.goal,
             completed_tasks=self.completed_tasks,
             pending_tasks=self.task_queue,
             knowledge_stats=self.knowledge.stats(),
             errors=self.errors,
-            working_memory=self.working_memory,
+            working_memory=wm,
         )
 
     # ── Auto-scoring ────────────────────────────────────────────────
+
+    def _is_research_complete(self) -> bool:
+        """R20.3: Check if research is statistically complete (good enough to stop).
+
+        Returns True if any JSON file has p_value with multiple result files.
+        This prevents wasting cycles on follow-up hypotheses when the core question is answered.
+        """
+        import glob as _glob
+        ws = self.mission_ctx.workspace_dir
+
+        # Must have result files with per-seed data
+        result_files = _glob.glob(os.path.join(ws, "results*.json"))
+        if len(result_files) < 2:
+            return False
+
+        # Check any JSON file for statistical content
+        all_json = _glob.glob(os.path.join(ws, "*.json"))
+        has_stats = False
+        for jf in all_json:
+            if "execution_log" in jf:
+                continue
+            try:
+                with open(jf) as f:
+                    data = json.load(f)
+                flat_str = json.dumps(data).lower()
+                has_pvalue = "p_value" in flat_str or "p-value" in flat_str
+                has_effect = "cohen" in flat_str or "effect_size" in flat_str
+                has_ttest = "t_statistic" in flat_str or "t_stat" in flat_str
+                if has_pvalue and (has_effect or has_ttest):
+                    has_stats = True
+                    break
+            except (json.JSONDecodeError, IOError):
+                continue
+
+        if not has_stats:
+            return False
+
+        # Check reviewer has run at least once
+        reviewer_done = any(
+            t.get("worker") == "reviewer" and t.get("success")
+            for t in self.completed_tasks
+        )
+        return reviewer_done
+
+        return False
 
     def _auto_score(self):
         """Run MissionScorer at mission end. Uses LLM Judge when available."""

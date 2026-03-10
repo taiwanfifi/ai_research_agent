@@ -13,7 +13,7 @@ plus conditional rules that activate based on accumulated learnings.
 
 MANDATORY_RULES = """## Research Quality Standards (MANDATORY)
 
-1. **Multiple Random Seeds**: Run experiments with 2-3 different random seeds.
+1. **Multiple Random Seeds**: Run experiments with 5 different random seeds (42, 123, 456, 789, 1024).
    Report mean ± std for all metrics. Use `set_seed(seed)` helper:
    ```python
    import random, numpy as np, torch
@@ -81,6 +81,13 @@ CODER_RULES = """## Reproducibility & Code Quality Rules
 - If dataset is small, print a WARNING and explain limitations
 - Always save trained models/checkpoints
 - Print all metrics in "metric_name: value" format for verification
+
+## SPEC COMPLIANCE (CRITICAL — affects verification score)
+- Your task description contains the EXACT parameters to use: epochs, samples, seeds, learning rate, etc.
+- You MUST use EXACTLY the parameters specified in your task. Do NOT change them.
+- If the task says "10 epochs" → use exactly 10. If it says "2000 samples" → use exactly 2000.
+- Changing specified parameters causes spec mismatch → verification score drops to 5/10.
+- If you believe a parameter is suboptimal, use it anyway and note it as a limitation.
 """
 
 # ── Reviewer-specific rules ─────────────────────────────────────────

@@ -147,8 +147,28 @@ If task should not be done:
             return {"action": "proceed", "reasoning": "", "modified_task": task}
 
     def _get_tool_executor(self):
-        """Return the tool executor callable. Override in subclasses to wrap."""
-        return self.registry.execute
+        """Return the tool executor callable with ToolGuard preflight checks.
+        Override in subclasses to add additional wrapping (e.g. code_store tracking)."""
+        base_executor = self.registry.execute
+        workspace_dir = getattr(self, '_workspace_dir', '') or ''
+
+        def guarded_executor(func_name: str, func_args: dict) -> str:
+            from core.tool_guards import run_guard
+            guard_result = run_guard(func_name, func_args, workspace_dir=workspace_dir)
+            if guard_result:
+                if guard_result.get("blocked"):
+                    print(f"  [{self.WORKER_NAME}] GUARD BLOCKED {func_name}: {guard_result['reason']}")
+                    return json.dumps({
+                        "success": False,
+                        "error": f"Preflight check failed: {guard_result['reason']}",
+                        "suggested_actions": guard_result.get("suggested_actions", []),
+                    })
+                else:
+                    # Warning only — log and continue
+                    print(f"  [{self.WORKER_NAME}] GUARD WARNING {func_name}: {guard_result['reason']}")
+            return base_executor(func_name, func_args)
+
+        return guarded_executor
 
     def run(self, task: str, context: str = "") -> dict:
         """

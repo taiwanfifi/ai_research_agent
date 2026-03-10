@@ -12,6 +12,7 @@ from supervisor.research_standards import get_reviewer_rules
 REVIEWER_TOOLS = {
     "run_python_code", "write_file", "read_file", "pip_install", "detect_hardware",
     "search_hf_datasets", "fetch_leetcode_problem", "fetch_humaneval_sample",
+    "gpu_search", "gpu_run", "gpu_status",
 }
 
 
@@ -33,12 +34,14 @@ class ReviewerWorker(BaseWorker):
 - fetch_humaneval_sample: Get HumanEval benchmark samples
 
 ## Workflow
-1. Understand what needs to be evaluated
-2. Install required packages if not available
-3. Design appropriate test cases or benchmarks
-4. Execute benchmarks and collect metrics
-5. Analyze results: accuracy, speed, memory, device utilization
-6. Write a structured evaluation report
+1. FIRST: read_file to check for existing results JSON files (results_*.json, *_results.json)
+2. If results exist: load them, compute statistics, generate charts — do NOT retrain
+3. If results are missing or incomplete: run minimal evaluation code to fill gaps
+4. Analyze: statistical tests (t-test, Cohen's d), effect sizes, confidence intervals
+5. Generate comparison charts with plt.savefig
+6. Save analysis_summary.json with ALL statistics (this is the single source of truth for scoring)
+7. Write a structured evaluation report
+8. IMPORTANT: analysis_summary.json must include every numerical claim in your report
 
 ## Benchmarking Guidelines
 - Auto-detect device: `device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")`
@@ -55,6 +58,11 @@ class ReviewerWorker(BaseWorker):
 - **ALWAYS use plt.savefig('filename.png', dpi=150, bbox_inches='tight')** then plt.close()
 - **ALL text in figures MUST be in English** — titles, labels, legends, annotations
 - Save comparison plots, loss curves, confusion matrices etc. to workspace
+- **Figure annotations**: Add significance markers (*, **, ***) on comparison charts. Include 95% CI error bars.
+
+## CRITICAL: analysis_summary.json Structure
+Your analysis_summary.json MUST include: methods (with mean, std, per-seed values), statistics (paired_t_test with t_stat and p_value, cohens_d, significant bool), best_method name, and conclusion sentence.
+This file is the SINGLE SOURCE OF TRUTH — the final report reads from it.
 
 ## MANDATORY Final Summary
 At the end of your evaluation, you MUST provide:
@@ -73,6 +81,13 @@ At the end of your evaluation, you MUST provide:
 - Which method is best and why?
 - Are the differences statistically significant?
 - Where does each method fail?
+
+### Discussion & Interpretation (CRITICAL)
+Go beyond statistics — explain the WHY:
+- **Why** did the winning method outperform? What mechanism explains it?
+- **Surprising results**: Anything unexpected? Why might it have happened?
+- **Practical implications**: When would a practitioner choose method A over B?
+- **Connection to theory**: Do results align with or contradict existing literature?
 
 ### Figures Generated
 - List all saved figure files and what they show

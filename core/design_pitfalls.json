@@ -1,0 +1,86 @@
+[
+  {
+    "category": "architecture",
+    "triggers": ["BatchNorm", "batch norm", "BN", "Transformer", "BERT", "GPT"],
+    "pitfall": "BatchNorm is for CNNs/ResNets. Transformers (BERT, GPT) use LayerNorm. Adding BatchNorm to a Transformer is structurally incompatible.",
+    "severity": "fatal"
+  },
+  {
+    "category": "architecture",
+    "triggers": ["CausalLM", "causal", "GPT", "classification", "sentiment"],
+    "pitfall": "Decoder-only models (GPT-2) need a classification head for classification tasks. Use AutoModelForSequenceClassification, not AutoModelForCausalLM.",
+    "severity": "major"
+  },
+  {
+    "category": "architecture",
+    "triggers": ["distillation", "knowledge distillation", "teacher", "student"],
+    "pitfall": "Knowledge distillation requires teacher to be significantly more capable than student. Same-size or same-architecture models make distillation pointless.",
+    "severity": "major"
+  },
+  {
+    "category": "architecture",
+    "triggers": ["attention", "linear attention", "softmax"],
+    "pitfall": "Attention mechanism differences (linear vs softmax) may only show meaningful impact at scale (>100M params). On small models, differences may be noise — but a null result ('no significant difference at small scale') is still valid research if framed as a hypothesis test.",
+    "severity": "minor"
+  },
+  {
+    "category": "dataset",
+    "triggers": ["MNIST", "mnist"],
+    "pitfall": "MNIST is too simple for meaningful comparisons — any modern method achieves 97%+. Use CIFAR-10 minimum, or CIFAR-100/ImageNet subset for more discriminative results.",
+    "severity": "major"
+  },
+  {
+    "category": "dataset",
+    "triggers": ["optimizer", "SGD", "Adam", "AdamW", "learning rate"],
+    "pitfall": "Optimizer comparisons need tasks with complex loss landscapes. Simple tasks (MNIST, small MLP) converge regardless of optimizer. Use at least CIFAR-10 with ResNet or a text classification task.",
+    "severity": "major"
+  },
+  {
+    "category": "dataset",
+    "triggers": ["regularization", "dropout", "weight decay", "overfitting"],
+    "pitfall": "Regularization comparisons require a model large enough to overfit. If the model cannot overfit, regularization differences are invisible.",
+    "severity": "major"
+  },
+  {
+    "category": "comparison",
+    "triggers": ["SGD", "Adam", "compare optimizer"],
+    "pitfall": "Adam vs SGD is well-established since 2014. Only interesting with specific hypotheses: generalization gap, specific schedules, or on specific task types. State what you expect and why.",
+    "severity": "minor"
+  },
+  {
+    "category": "comparison",
+    "triggers": ["BERT", "GPT", "classification"],
+    "pitfall": "BERT outperforms GPT-2 on classification (bidirectional vs unidirectional). This is known. Only interesting with a twist: few-shot, domain adaptation, or parameter-efficient methods.",
+    "severity": "minor"
+  },
+  {
+    "category": "comparison",
+    "triggers": ["dropout rate", "dropout 0.1", "dropout 0.3", "dropout 0.5"],
+    "pitfall": "Comparing different dropout rates is hyperparameter tuning, not research. Needs a specific hypothesis about the mechanism.",
+    "severity": "minor"
+  },
+  {
+    "category": "methodology",
+    "triggers": ["compare", "benchmark", "evaluate"],
+    "pitfall": "Every comparison needs: (1) a hypothesis about expected outcome and why, (2) a strong baseline (not just a weak one), (3) controlling for compute/parameter budget.",
+    "severity": "minor"
+  },
+  {
+    "category": "scope",
+    "triggers": ["study", "investigate", "explore"],
+    "pitfall": "Goals must specify: what models, what dataset, what metric, what comparison. 'Study X' is too vague.",
+    "severity": "minor"
+  },
+  {
+    "category": "dataset",
+    "triggers": ["NLP", "text", "sentiment", "SST", "IMDB"],
+    "pitfall": "For NLP tasks: SST-2 (binary) is good for quick comparisons. IMDB has longer texts (watch truncation). AG News (4-class) is better for showing model capacity differences.",
+    "severity": "minor"
+  },
+  {
+    "category": "architecture",
+    "triggers": ["LoRA", "PEFT", "adapter"],
+    "pitfall": "LoRA target modules differ by architecture: BERT uses query/key/value, GPT-2 uses c_attn/c_proj. Wrong targets = no learning. Also: PEFT on MPS often crashes — use CPU.",
+    "severity": "major"
+  }
+]
