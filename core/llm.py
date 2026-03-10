@@ -466,7 +466,8 @@ class MiniMaxClient:
                     continue
                 raise
 
-            except httpx.ReadTimeout:
+            except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.WriteTimeout,
+                    httpx.PoolTimeout, httpx.TimeoutException):
                 if attempt < self.max_retries - 1:
                     print(f"  [LLM] Timeout, retrying ({attempt+2}/{self.max_retries})...")
                     time.sleep(2)

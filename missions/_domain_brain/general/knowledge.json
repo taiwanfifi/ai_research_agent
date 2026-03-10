@@ -4,28 +4,316 @@
   ],
   "principles": [
     {
-      "principle": "",
-      "evidence": "lora fine tuning on",
+      "principle": "Spatial dropout and DropBlock require spatial structure in feature maps to exhibit their block-wise dropout mechanism advantage over standard dropout",
+      "evidence": "With identical results across all types on a simple 3-layer CNN, the model architecture may not have sufficient spatial feature complexity for spatial dropout's channel-dropping or DropBlock's block-dropping to demonstrate their theoretical advantages",
       "confidence": 0.6,
-      "source": "evolution_store_migration",
-      "added": "2026-03-10T17:58:55.597432"
+      "added": "2026-03-11T07:06:01.749571"
     },
     {
-      "principle": "",
-      "evidence": "lora fine tuning on",
-      "confidence": 0.6,
-      "source": "evolution_store_migration",
-      "added": "2026-03-10T17:58:55.597570"
+      "principle": "Implementation robustness is prerequisite for experimental validity; infrastructure failures prevent scientific inference entirely",
+      "evidence": "3 out of 4 conditions failed due to data loading errors, making the planned statistical comparison impossible despite proper experimental design",
+      "confidence": 0.95,
+      "added": "2026-03-11T07:06:12.490489"
     },
     {
-      "principle": "",
-      "evidence": "early stopping patience 2",
-      "confidence": 0.6,
-      "source": "evolution_store_migration",
-      "added": "2026-03-10T17:58:55.598340"
+      "principle": "CIFAR-10 classification with 2000 samples and 1 epoch yields ~17% accuracy, indicating the model captures some signal but severely underfits (random chance = 10%)",
+      "evidence": "Test accuracy 17.15% ± 1.90% with pre-activation BN, batch size 32; training loss plateaued around 2.3 (cross-entropy for 10-class = 2.30 at random)",
+      "confidence": 0.9,
+      "added": "2026-03-11T07:06:12.490489"
+    },
+    {
+      "principle": "Batch normalization requires sufficient training iterations to show statistical advantages; short training runs may not reveal placement effects",
+      "evidence": "Only 1 epoch completed instead of planned 5, limiting ability to detect subtle architectural differences between pre and post-activation BN",
+      "confidence": 0.7,
+      "added": "2026-03-11T07:06:12.490489"
+    },
+    {
+      "principle": "Adaptive learning rate optimizers (Adam) significantly outperform fixed learning rate methods (SGD) under constrained training regimes (limited samples, few epochs) because they can automatically adjust per-parameter learning rates based on gradient history and momentum, enabling faster initial convergence.",
+      "evidence": "Adam achieved 35.65% vs SGD 25.0% after only 5 epochs on 2000 samples. Adam's epoch progression (28.35→35.65) shows continuous improvement while SGD plateaus earlier (16.75→25.0). The massive effect size (d=6.52) indicates Adam's mechanism provides substantial advantage in this low-resource scenario.",
+      "confidence": 0.95,
+      "added": "2026-03-11T07:06:26.800240"
+    },
+    {
+      "principle": "SGD's lower variance (std=0.82 vs Adam's 2.16) but poorer performance indicates it consistently converges to a lower-quality solution rather than failing inconsistently—suggesting it finds a worse local minimum that is stable across random initializations.",
+      "evidence": "SGD's per-seed accuracies ranged narrowly (23.5-26.0%) while Adam varied more (32.25-39.0%), yet Adam's mean far exceeded SGD. This demonstrates SGD's convergence to a consistent but suboptimal basin of attraction.",
+      "confidence": 0.85,
+      "added": "2026-03-11T07:06:26.800240"
+    },
+    {
+      "principle": "The statistical significance (p=0.0006) with extremely large effect size (d=6.52) indicates the optimizer choice is a dominant factor in model performance under these specific constraints—not merely a contributor.",
+      "evidence": "Cohen's d of 6.52 is far beyond the 'large' threshold (0.8), suggesting the difference between optimizers is orders of magnitude larger than within-method variance. This implies optimizer selection may matter more than hyperparameter tuning in low-data, short-training scenarios.",
+      "confidence": 0.9,
+      "added": "2026-03-11T07:06:26.800240"
+    },
+    {
+      "principle": "Adaptive learning rate optimizers (Adam) significantly outperform vanilla momentum SGD on small datasets with limited training epochs due to their per-parameter learning rate adaptation based on gradient first and second moments.",
+      "evidence": "Adam achieved 33.4% higher accuracy than SGD (37.55% vs 28.15%), with an extremely large effect size (d=8.56). This occurs because Adam's adaptive rates help prevent overshooting in regions of high curvature or sparse gradients, which are more problematic with limited data.",
+      "confidence": 0.95,
+      "added": "2026-03-11T07:06:42.000158"
+    },
+    {
+      "principle": "Decoupled weight decay (AdamW) shows no significant improvement over Adam in short-training, small-data regimes because the regularization effect requires sufficient training duration to manifest.",
+      "evidence": "Adam vs AdamW showed no significant difference (p=0.634, d=-0.23). With only 10 epochs and 2000 samples, the model hasn't trained long enough for weight decay's regularization effect on generalization to emerge—the weights haven't yet grown large enough for decay to meaningfully constrain them.",
+      "confidence": 0.85,
+      "added": "2026-03-11T07:06:42.000158"
+    },
+    {
+      "principle": "Statistical significance alone can be misleading; effect size interpretation is critical. Very large effect sizes (d>0.8) in small-sample experiments indicate robust practical differences.",
+      "evidence": "Adam vs SGD showed p=4.39e-05 with d=8.56—an extraordinarily large effect suggesting the difference is not just statistically significant but practically meaningful. Conversely, Adam vs AdamW showed trivial effect size (d=-0.23) despite n=5 per group.",
+      "confidence": 0.9,
+      "added": "2026-03-11T07:06:42.000158"
+    },
+    {
+      "principle": "Normalization techniques exhibit equivalent predictive performance on simple architectures with limited data and training compute, despite optimizing through different loss landscapes",
+      "evidence": "BatchNorm (92.1%) and LayerNorm (92.2%) achieved statistically identical accuracy (p=0.757, d=-0.148) on MNIST with 2000 samples and 5 epochs, yet LayerNorm achieved 4x lower loss (0.060 vs 0.253)",
+      "confidence": 0.85,
+      "added": "2026-03-11T07:06:54.946153"
+    },
+    {
+      "principle": "Loss values can diverge substantially while accuracy remains stable, suggesting normalization methods affect optimization dynamics differently without altering final decision boundaries",
+      "evidence": "LayerNorm's dramatically lower loss (0.060 vs 0.253) did not translate to higher accuracy, indicating the extra optimization capacity may not map to improved classification for this linearly-separable task",
+      "confidence": 0.75,
+      "added": "2026-03-11T07:06:54.946153"
+    },
+    {
+      "principle": "Statistical power in normalization comparison experiments requires sufficient training duration to reveal true differences; short training regimes may mask architecture-dependent effects",
+      "evidence": "5 epochs on 2000 samples showed null results, but this duration may be insufficient for normalization method differences to manifest in final performance metrics",
+      "confidence": 0.7,
+      "added": "2026-03-11T07:06:54.946153"
+    },
+    {
+      "principle": "Regularization effects emerge primarily when models are at risk of overfitting; with underfitting (train acc ~48%, val acc ~37%), there is nothing to regularize",
+      "evidence": "Both methods showed ~48% train accuracy and ~37% validation accuracy after 5 epochs, indicating the model had not learned the task sufficiently for overfitting to occur. Regularization constrains model capacity to improve generalization, but this mechanism is irrelevant when the model is still learning fundamental patterns.",
+      "confidence": 0.85,
+      "added": "2026-03-11T07:07:08.771698"
+    },
+    {
+      "principle": "L1 and L2 regularization converge to similar generalization performance under constrained training regimes",
+      "evidence": "Despite different mechanisms (L1 induces sparsity via L1 norm; L2 induces weight decay via L2 norm), both achieved statistically indistinguishable validation accuracy (39.7% vs 39.5%, p=0.74, d=0.16). This suggests that with limited epochs/samples, the inductive biases of both methods are too subtle to differentiate.",
+      "confidence": 0.8,
+      "added": "2026-03-11T07:07:08.771698"
+    },
+    {
+      "principle": "Short training durations lack statistical power to detect regularization method differences",
+      "evidence": "5 epochs on 2000 samples provides minimal exposure to the distinct weight distributions each regularization type produces. L1's sparsity-promoting effect requires iterative weight thresholding over many updates to manifest, and L2's weight shrinkage accumulates gradually—both need extended training to show divergence.",
+      "confidence": 0.75,
+      "added": "2026-03-11T07:07:08.771698"
+    },
+    {
+      "principle": "Adaptive learning rate optimizers (Adam) significantly outperform vanilla gradient descent (SGD) when training data is limited due to more stable gradient estimates from momentum-based normalization",
+      "evidence": "At n=500, Adam achieves 33.8% vs SGD's 10.6% (d=9.7). SGD's gradients are highly sensitive to batch composition, causing erratic updates, while Adam's adaptive moment estimation smooths gradient variance.",
+      "confidence": 0.95,
+      "added": "2026-03-11T07:07:28.881000"
+    },
+    {
+      "principle": "SGD requires a critical minimum sample size before learning becomes stable; below this threshold, training is essentially random",
+      "evidence": "At n=100, both optimizers achieve ~10-13% (near random chance for 10-class CIFAR-10). At n=500, SGD still only achieves 10.6% while Adam jumps to 33.8%, indicating SGD has not yet reached the data threshold for meaningful learning.",
+      "confidence": 0.9,
+      "added": "2026-03-11T07:07:28.881000"
+    },
+    {
+      "principle": "The performance gap between optimizers narrows as dataset size increases, but Adam maintains a consistent advantage",
+      "evidence": "Difference decreases from 23.2% (n=500) to 9.45% (n=2000) to ~7.5% (n=5000). With more data, SGD's gradient estimates become more reliable, reducing the advantage of adaptive methods.",
+      "confidence": 0.85,
+      "added": "2026-03-11T07:07:28.881000"
+    },
+    {
+      "principle": "Optimizer variance is not simply a function of sample size—SGD shows higher variance at moderate sizes but lower variance at extremes, suggesting a U-shaped variance relationship with data availability",
+      "evidence": "SGD std: 4.47 (n=100), 2.3 (n=500), 4.18 (n=1000), 0.99 (n=2000), 0.82 (n=5000). The variance is highest at intermediate sizes where learning has started but is unstable.",
+      "confidence": 0.7,
+      "added": "2026-03-11T07:07:28.881000"
     }
   ],
-  "experiments": [],
-  "open_questions": [],
-  "created": "2026-03-10T17:58:55.597177"
+  "experiments": [
+    {
+      "description": "Pre-activation BN (before ReLU) with batch_size=32 on 4-layer CNN / CIFAR-10 (2000 samples, ~1 epoch)",
+      "result": "Test accuracy 17.15% ± 1.90%, training loss 2.297 ± 0.022. Model is learning but severely underfitting.",
+      "p_value": null,
+      "effect_size": null,
+      "added": "2026-03-11T07:06:12.490489"
+    },
+    {
+      "description": "Post-activation BN (after ReLU) with batch_size=32",
+      "result": "Not completed - data loading error",
+      "p_value": null,
+      "effect_size": null,
+      "added": "2026-03-11T07:06:12.490489"
+    },
+    {
+      "description": "Pre-activation BN with batch_size=128",
+      "result": "Not completed - data loading error",
+      "p_value": null,
+      "effect_size": null,
+      "added": "2026-03-11T07:06:12.490489"
+    },
+    {
+      "description": "Post-activation BN with batch_size=128",
+      "result": "Not completed - data loading error",
+      "p_value": null,
+      "effect_size": null,
+      "added": "2026-03-11T07:06:12.490489"
+    },
+    {
+      "description": "Adam vs SGD optimizer comparison on 3-layer MLP for MNIST classification",
+      "result": "Adam significantly outperformed SGD (35.65% vs 25.0% accuracy). Paired t-test highly significant (t=9.81, p=0.0006) with extremely large effect size (d=6.52). Five seeds (42, 123, 456, 789, 1024), 2000 training samples, 5 epochs.",
+      "p_value": 0.000605,
+      "effect_size": 6.5177,
+      "added": "2026-03-11T07:06:26.800240"
+    },
+    {
+      "description": "Optimizer comparison: Adam (lr=0.001) vs SGD+momentum (lr=0.01, mu=0.9) vs AdamW (lr=0.001, wd=0.01) on SimpleCNN/CIFAR-10",
+      "result": "Adam and AdamW significantly outperform SGD (mean 37.55% and 37.70% vs 28.15%, p<0.001 Holm-Bonferroni corrected). No significant difference between Adam and AdamW.",
+      "p_value": "4.39e-05 (Adam vs SGD), 7.84e-05 (SGD vs AdamW), 0.634 (Adam vs AdamW)",
+      "effect_size": "Cohen's d: 8.56 (Adam vs SGD), -7.39 (SGD vs AdamW), -0.23 (Adam vs AdamW)",
+      "added": "2026-03-11T07:06:42.000158"
+    },
+    {
+      "description": " Holm-Bonferroni correction for 3 pairwise comparisons",
+      "result": "Adjusted alphas: 0.0167 (most significant), 0.025, 0.05 (least significant). Both Adam comparisons with SGD remained significant at strictest threshold.",
+      "p_value": null,
+      "effect_size": null,
+      "added": "2026-03-11T07:06:42.000158"
+    },
+    {
+      "description": "Training time comparison across optimizers",
+      "result": "All optimizers have comparable training times (~55-57s per epoch), indicating computational overhead of Adam/AdamW over SGD is negligible in this regime.",
+      "p_value": null,
+      "effect_size": null,
+      "added": "2026-03-11T07:06:42.000158"
+    },
+    {
+      "description": "BatchNorm vs LayerNorm on SimpleMLP/MNIST, 2000 samples, 5 epochs, 5 seeds (42,123,456,789,1024)",
+      "result": "No significant difference in accuracy (BatchNorm: 92.1±0.68%, LayerNorm: 92.2±0.84%, p=0.757, d=-0.148). However, LayerNorm achieved substantially lower loss (0.060 vs 0.253)",
+      "p_value": 0.7572,
+      "effect_size": -0.148,
+      "added": "2026-03-11T07:06:54.946153"
+    },
+    {
+      "description": "L1 vs L2 regularization on SimpleCNN for CIFAR-10 classification",
+      "result": "No significant difference in validation accuracy (L1: 39.70% ± 1.44, L2: 39.50% ± 1.64, p=0.74). Cohen's d = 0.156 indicates negligible effect size. Both methods showed nearly identical training accuracy (~48%), confirming underfitting.",
+      "p_value": 0.7444,
+      "effect_size": 0.156,
+      "added": "2026-03-11T07:07:08.771698"
+    },
+    {
+      "description": "SGD vs Adam on SimpleCNN/CIFAR-10, n=100 samples, 5 seeds, 20 epochs",
+      "result": "No significant difference (SGD 13.0% vs Adam 11.0%, p=0.37). Both optimizers essentially fail to learn with insufficient data.",
+      "p_value": 0.374,
+      "effect_size": -0.447,
+      "added": "2026-03-11T07:07:28.881000"
+    },
+    {
+      "description": "SGD vs Adam on SimpleCNN/CIFAR-10, n=500 samples, 5 seeds, 20 epochs",
+      "result": "Adam significantly outperforms SGD (33.8% vs 10.6%, p=2.7e-05). This represents the critical threshold where Adam begins learning while SGD remains stuck.",
+      "p_value": 2.7e-05,
+      "effect_size": 9.717,
+      "added": "2026-03-11T07:07:28.881000"
+    },
+    {
+      "description": "SGD vs Adam on SimpleCNN/CIFAR-10, n=1000 samples, 5 seeds, 20 epochs",
+      "result": "Adam significantly outperforms SGD (33.8% vs 25.7%, p=0.03). Gap narrowing as SGD begins to learn effectively.",
+      "p_value": 0.0304,
+      "effect_size": 1.468,
+      "added": "2026-03-11T07:07:28.881000"
+    },
+    {
+      "description": "SGD vs Adam on SimpleCNN/CIFAR-10, n=2000 samples, 5 seeds, 20 epochs",
+      "result": "Adam significantly outperforms SGD (38.9% vs 29.45%, p=0.0003). Large effect size persists but difference decreasing.",
+      "p_value": 0.000305,
+      "effect_size": 5.232,
+      "added": "2026-03-11T07:07:28.881000"
+    },
+    {
+      "description": "SGD vs Adam on SimpleCNN/CIFAR-10, n=5000 samples, 5 seeds, 20 epochs",
+      "result": "Adam maintains advantage (45.74% vs 38.28%). Gap continues to narrow with more data.",
+      "p_value": "not computed (data truncated)",
+      "effect_size": "not computed",
+      "added": "2026-03-11T07:07:28.881000"
+    }
+  ],
+  "open_questions": [
+    "At what epoch count (e.g., 10, 20, 50) does the L1 vs L2 differentiation emerge for this architecture?",
+    "Would larger sample sizes (full CIFAR-10, 50k samples) reveal regularization differences?",
+    "Does the choice of regularization λ (lambda) magnitude affect the outcome when training is extended?",
+    "Would more complex architectures (deeper networks, ResNet) show L1/L2 divergence sooner due to greater overfitting risk?",
+    "Does the sparsity-inducing property of L1 provide computational efficiency benefits even without accuracy gains?",
+    "What is the exact sample size threshold where SGD transitions from random to meaningful learning?",
+    "Would learning rate scheduling for SGD close the gap with Adam at smaller dataset sizes?",
+    "Does the advantage of Adam over SGD persist at larger epoch counts (100+ epochs), or does SGD eventually catch up?",
+    "Would SGD with momentum achieve similar performance to Adam at smaller dataset sizes, isolating the effect of adaptive learning rates vs. momentum?",
+    "How do these results generalize to other architectures (ResNet, VGG) or datasets (CIFAR-100, ImageNet subset)?"
+  ],
+  "created": "2026-03-10T17:58:55.597177",
+  "concepts": [
+    {
+      "concept": "Data-dependent optimizer superiority",
+      "anchor_definition": "Adaptive learning rate optimizers (Adam) outperform gradient-based optimizers (SGD) primarily when training data is insufficient for SGD to achieve stable gradient estimates; the performance gap systematically narrows but persists as dataset size increases.",
+      "explanation": "Multiple principles and experiments demonstrate this pattern: SGD fails completely below n=500 samples (13% vs 11%, not significant), becomes marginally functional at n=500 (33.8% vs 10.6%), and progressively improves relative to Adam at n=1000 (33.8% vs 25.7%), n=2000 (38.9% vs 29.45%), and n=5000. The underlying mechanism is that SGD requires a critical minimum sample size to generate stable gradient estimates—below this threshold, training is essentially random noise. Adam's per-parameter learning rate adaptation based on gradient moments provides stable updates even with noisy, small-sample gradients.",
+      "supporting_evidence": [
+        "Adam significantly outperforms SGD when training data is limited due to more stable gradient estimates from momentum-based normalization",
+        "SGD requires a critical minimum sample size before learning becomes stable; below this threshold, training is essentially random",
+        "The performance gap between optimizers narrows as dataset size increases, but Adam maintains a consistent advantage",
+        "SGD vs Adam experiment: n=500 samples shows Adam 33.8% vs SGD 10.6% (p=2.7e-05); n=5000 shows gap narrowing but Adam still ahead"
+      ],
+      "predictions": [
+        "With very large datasets (n>50000), Adam and SGD performance should converge nearly completely",
+        "For tiny datasets (n<200), neither optimizer will learn effectively without data augmentation or pre-trained features",
+        "Critical sample threshold will shift higher for more complex architectures (ResNet vs SimpleCNN)"
+      ],
+      "scope": "Applies to classification tasks with standard architectures. Does not apply to settings with pre-trained models, transfer learning, or highly structured data where gradient statistics differ fundamentally.",
+      "created": "2026-03-11T07:08:19.256497",
+      "version": 1
+    },
+    {
+      "concept": "Underfitting masks algorithmic differences",
+      "anchor_definition": "When models are severely underfitting (training accuracy near random chance, no overfitting occurring), different regularization, normalization, and optimization methods converge to equivalent performance because there is no variation in model behavior to differentiate.",
+      "explanation": "The L1 vs L2 experiment demonstrated this precisely: both achieved nearly identical training accuracy (~48%) and validation accuracy (~39.5%), confirming underfitting. With no overfitting occurring, the regularization mechanism (which constrains generalization gap) has nothing to work with. Similarly, BatchNorm vs LayerNorm showed no accuracy difference under constrained training, and short training durations lack power to detect method differences. The statistical power principle states that differences only emerge when there's variation to explain.",
+      "supporting_evidence": [
+        "Regularization effects emerge primarily when models are at risk of overfitting; with underfitting (train acc ~48%, val acc ~37%), there is nothing to regularize",
+        "L1 and L2 regularization converge to similar generalization performance under constrained training regimes",
+        "Short training durations lack statistical power to detect regularization method differences",
+        "Statistical power in normalization comparison experiments requires sufficient training duration to reveal true differences"
+      ],
+      "predictions": [
+        "Adding more epochs to underfitting models will first reveal optimizer differences, then normalization differences, then regularization differences—in that order as model approaches overfitting regime",
+        "Increasing model capacity (more layers/parameters) will shift regimes faster than increasing data"
+      ],
+      "scope": "Applies to controlled experiments comparing optimization/normalization/regularization methods. Does not apply when comparing fundamentally different model architectures or when pre-training is involved.",
+      "created": "2026-03-11T07:08:19.256515",
+      "version": 1
+    },
+    {
+      "concept": "Optimization dynamics vs final performance dissociation",
+      "anchor_definition": "Different optimization methods (normalization, optimizers) can traverse substantially different loss landscapes and exhibit different loss values while converging to functionally equivalent decision boundaries and accuracy.",
+      "explanation": "The BatchNorm vs LayerNorm experiment showed LayerNorm achieving substantially lower loss (0.060 vs 0.253) while maintaining equivalent accuracy (92.2% vs 92.1%). This indicates the methods optimize through different loss landscapes but find similar decision boundaries. Similarly, the SGD variance principle shows SGD has lower variance but poorer performance—not because it's more random, but because it consistently converges to a different (worse) local minimum. This dissociation means loss alone is insufficient for comparing optimization methods.",
+      "supporting_evidence": [
+        "Loss values can diverge substantially while accuracy remains stable, suggesting normalization methods affect optimization dynamics differently without altering final decision boundaries",
+        "SGD's lower variance (std=0.82 vs Adam's 2.16) but poorer performance indicates it consistently converges to a lower-quality solution rather than failing inconsistently"
+      ],
+      "predictions": [
+        "Loss curves will show clearer method differences than accuracy curves in early training phases",
+        "Architecture changes that affect loss landscape geometry (e.g., skip connections) will amplify optimization method differences"
+      ],
+      "scope": "Applies to comparisons within classification tasks using cross-entropy or similar losses. Does not apply to ranking/retrieval tasks where loss and accuracy are more directly aligned.",
+      "created": "2026-03-11T07:08:19.256516",
+      "version": 1
+    },
+    {
+      "concept": "Effect size as essential complement to significance",
+      "anchor_definition": "Statistical significance (p-values) in machine learning experiments can be misleading with high variance across seeds; Cohen's d effect size quantifies practical magnitude and serves as a more robust indicator of whether optimizer/method choices meaningfully impact outcomes.",
+      "explanation": "The principle explicitly notes that p=0.0006 with d=6.52 indicates optimizer choice is a dominant factor, not merely a contributor. The L1 vs L2 experiment showed p=0.74 but d=0.156 (negligible effect), demonstrating that significant-looking differences can be practically meaningless. Conversely, the normalization comparison had non-significant p=0.757 but this was because methods truly performed equivalently, not due to insufficient power. Effect size interpretation is critical for experimental design: very large effects (d>0.8) in small-sample experiments indicate robust practical differences worth investigating.",
+      "supporting_evidence": [
+        "Statistical significance alone can be misleading; effect size interpretation is critical. Very large effect sizes (d>0.8) in small-sample experiments indicate robust practical differences",
+        "The statistical significance (p=0.0006) with extremely large effect size (d=6.52) indicates the optimizer choice is a dominant factor in model performance under these specific constraints"
+      ],
+      "predictions": [
+        "Experiments with large effect sizes (d>0.8) will replicate reliably across different random seeds",
+        "Small effect sizes (d<0.3) indicate method choice is not practically important regardless of p-value"
+      ],
+      "scope": "Applies to all comparative experiments in machine learning. Particularly critical when comparing optimizers, regularization, or architectures where variance across seeds is high.",
+      "created": "2026-03-11T07:08:19.256518",
+      "version": 1
+    }
+  ],
+  "last_consolidation": "2026-03-11T07:08:19.256523"
 }

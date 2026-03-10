@@ -2037,12 +2037,17 @@ Respond with ONLY JSON:
                 executor.submit(run_primary): primary_worker,
                 executor.submit(run_explorer): "explorer",
             }
-            for future in as_completed(futures):
-                name = futures[future]
-                try:
-                    future.result()
-                except Exception as e:
-                    print(f"  [Supervisor] Parallel {name} error: {e}")
+            try:
+                for future in as_completed(futures, timeout=1800):  # 30 min hard cap
+                    name = futures[future]
+                    try:
+                        future.result(timeout=60)
+                    except Exception as e:
+                        print(f"  [Supervisor] Parallel {name} error: {e}")
+            except TimeoutError:
+                print(f"  [Supervisor] Parallel dispatch timed out (30min). Cancelling stuck threads.")
+                for f in futures:
+                    f.cancel()
 
     # ── Worker dispatch ──────────────────────────────────────────────
 

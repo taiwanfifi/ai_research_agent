@@ -4,28 +4,104 @@
   ],
   "principles": [
     {
-      "principle": "",
-      "evidence": "compare sgd vs adam",
+      "principle": "Learning rate warmup provides consistent but modest performance improvements across model scales, possibly by stabilizing early gradient descent in regions of high curvature",
+      "evidence": "Both DistilBERT (d=-0.48) and TinyBERT (d=-0.79) showed positive accuracy gains from warmup despite non-significant p-values, suggesting a generalizable benefit rather than model-size-dependent effect",
       "confidence": 0.6,
-      "source": "evolution_store_migration",
-      "added": "2026-03-10T17:58:55.598998"
+      "added": "2026-03-11T07:05:46.482759"
     },
     {
-      "principle": "",
-      "evidence": "compare sgd vs adam",
-      "confidence": 0.6,
-      "source": "evolution_store_migration",
-      "added": "2026-03-10T17:58:55.599174"
+      "principle": "Small sample sizes (n=3) severely limit statistical power to detect medium-to-large effects, causing true differences to appear non-significant",
+      "evidence": "Cohen's d values of -0.48 and -0.79 indicate substantial effects, yet paired t-tests yielded p>0.30 due to high variance relative to n=3. The effect sizes are more informative than p-values here.",
+      "confidence": 0.85,
+      "added": "2026-03-11T07:05:46.482759"
     },
     {
-      "principle": "",
-      "evidence": "compare sgd vs adam",
-      "confidence": 0.6,
-      "source": "evolution_store_migration",
-      "added": "2026-03-10T17:58:55.599316"
+      "principle": "Three training epochs on 2000 samples may be insufficient to reach convergence where warmup effects become fully observable or wash out",
+      "evidence": "Short training regimes (3 epochs) on subset data may amplify transient optimization dynamics (like warmup benefits) while preventing models from reaching stable final performance where such effects diminish",
+      "confidence": 0.5,
+      "added": "2026-03-11T07:05:46.482759"
     }
   ],
-  "experiments": [],
-  "open_questions": [],
-  "created": "2026-03-10T17:58:55.598655"
+  "experiments": [
+    {
+      "description": "DistilBERT (66M) baseline vs 10% warmup on SST-2, 2000 samples, 3 epochs, lr=2e-5",
+      "result": "Warmup improved mean accuracy from 85.5% to 86.0% (+0.5%). Paired t-test: t=-0.83, p=0.49 (not significant). Effect size: d=-0.48 (medium)",
+      "p_value": 0.493,
+      "effect_size": -0.48,
+      "added": "2026-03-11T07:05:46.482759"
+    },
+    {
+      "description": "TinyBERT (smaller) baseline vs 10% warmup on SST-2, 2000 samples, 3 epochs, lr=2e-5",
+      "result": "Warmup improved mean accuracy from 82.5% to 83.1% (+0.6%). Paired t-test: t=-1.37, p=0.31 (not significant). Effect size: d=-0.79 (large)",
+      "p_value": 0.305,
+      "effect_size": -0.79,
+      "added": "2026-03-11T07:05:46.482759"
+    },
+    {
+      "description": "Cross-model comparison: does model size modulate warmup benefit?",
+      "result": "Hypothesis NOT supported. TinyBERT showed numerically larger warmup benefit (0.6% vs 0.5%) but this difference was not tested statistically and both effects were non-significant. Insufficient evidence to claim model-size dependence.",
+      "p_value": null,
+      "effect_size": null,
+      "added": "2026-03-11T07:05:46.482759"
+    }
+  ],
+  "open_questions": [
+    "Would more seeds (n≥10) reveal statistically significant warmup effects given the observed effect sizes?",
+    "Does the warmup benefit persist, diminish, or reverse at longer training durations (10+ epochs)?",
+    "Would larger sample sizes (full SST-2) or different learning rates change the relative benefit between model sizes?",
+    "Is the sensitivity hypothesis (smaller models benefit more) testable with more training data or longer training?"
+  ],
+  "created": "2026-03-10T17:58:55.598655",
+  "concepts": [
+    {
+      "concept": "Statistical power asymmetry with small samples",
+      "anchor_definition": "When sample sizes are small (n<10), medium-to-large true effects frequently fail to achieve statistical significance (p<0.05), leading to false negative conclusions despite the presence of meaningful effects",
+      "explanation": "Both experiments showed medium-to-large effect sizes (d=-0.48, d=-0.79) that would be considered practically meaningful, yet neither achieved statistical significance. This occurs because with n=3, the standard error remains large enough that the confidence intervals span zero even when the true effect is substantial. The principle about small sample sizes limiting statistical power explains WHY the warmup improvements appear non-significant despite consistent numerical gains.",
+      "supporting_evidence": [
+        "Small sample sizes (n=3) severely limit statistical power to detect medium-to-large effects, causing true differences to appear non-significant",
+        "DistilBERT: effect size d=-0.48 (medium), p=0.49 (not significant)",
+        "TinyBERT: effect size d=-0.79 (large), p=0.31 (not significant)"
+      ],
+      "predictions": [
+        "Increasing n to 10-15 per condition would likely yield significant p-values for the same effect sizes",
+        "Future experiments with larger n should show warmup effects reaching p<0.05"
+      ],
+      "scope": "Applies to any experimental comparison with n<10 where effect sizes are medium-to-large. Does not apply when effects are truly small (d<0.2) or when n>20.",
+      "created": "2026-03-11T07:09:07.062334",
+      "version": 1
+    },
+    {
+      "concept": "Transient vs. asymptotic warmup effects",
+      "anchor_definition": "Learning rate warmup may produce benefits primarily during early training that diminish or reverse as training approaches convergence, making observation window critical for detecting advantages",
+      "explanation": "The principle that 3 epochs may be insufficient to reach convergence explains why warmup effects appear 'modest' — we may be observing a transient state rather than the asymptotic outcome. Warmup stabilizes early gradient descent, but if training hasn't reached a stable region, these benefits haven't fully manifested in final performance. The consistent but small numerical improvements across both model sizes could represent early-stage warmup advantages that would either grow or wash out with extended training.",
+      "supporting_evidence": [
+        "Learning rate warmup provides consistent but modest performance improvements across model scales",
+        "Three training epochs on 2000 samples may be insufficient to reach convergence where warmup effects become fully observable or wash out"
+      ],
+      "predictions": [
+        "Extending training to 5-10 epochs should reveal whether warmup benefits grow, shrink, or plateau",
+        "Warmup effects may be largest at intermediate training lengths (e.g., 3-5 epochs) and diminish at convergence"
+      ],
+      "scope": "Applies to transformer-based fine-tuning with standard learning rates on small-to-medium datasets. May not apply to training from scratch or very large datasets where convergence takes many more epochs.",
+      "created": "2026-03-11T07:09:07.062347",
+      "version": 1
+    },
+    {
+      "concept": "Null results require stronger evidence threshold",
+      "anchor_definition": "Non-significant results with small samples and medium-to-large observed effects should not be interpreted as evidence against the hypothesis, but rather as inconclusive requiring replication",
+      "explanation": "The cross-model comparison hypothesis (model size modulates warmup benefit) was declared 'NOT supported' based on non-significant differences. However, both experiments showed non-significant warmup effects themselves. This creates a logical problem: we cannot confidently claim model-size dependence when neither underlying effect is statistically significant. The principle about small sample power explains that absence of evidence is not evidence of absence — the hypothesis remains untested at adequate statistical power.",
+      "supporting_evidence": [
+        "Small sample sizes (n=3) severely limit statistical power to detect medium-to-large effects",
+        "Cross-model comparison: hypothesis NOT supported. TinyBERT showed numerically larger warmup benefit but this difference was not tested statistically and both effects were non-significant"
+      ],
+      "predictions": [
+        "With adequate sample sizes, a true model-size by warmup interaction may or may not exist — current data is uninformative",
+        "Claiming 'no effect' should wait until primary effects (warmup vs baseline) reach significance"
+      ],
+      "scope": "Applies to comparative analyses where both conditions have non-significant primary effects. Does not apply when at least one condition shows significant effects.",
+      "created": "2026-03-11T07:09:07.062350",
+      "version": 1
+    }
+  ],
+  "last_consolidation": "2026-03-11T07:09:07.062354"
 }
