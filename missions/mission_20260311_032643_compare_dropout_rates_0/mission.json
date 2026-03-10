@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260311_032643_compare_dropout_rates_0",
+  "goal": "Compare Dropout rates (0.0, 0.3, 0.5) on simple CNN for CIFAR-10. 5 epochs, 2000 training samples, 5 seeds. Measure test accuracy and overfitting gap (train acc - test acc).",
+  "direction": "Compare Dropout rates (0.0, 0.3, 0.5) on simple CNN for CIFAR-10. 5 epochs, 2000 training samples, 5 seeds. Measure test accuracy and overfitting gap (train acc - test acc).",
+  "slug": "compare_dropout_rates_0",
+  "created_at": "2026-03-11T03:26:43",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "running"
+}

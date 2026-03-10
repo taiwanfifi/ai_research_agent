@@ -1,0 +1,52 @@
+{
+  "keywords": [
+    "architecture"
+  ],
+  "principles": [
+    {
+      "principle": "",
+      "evidence": "Compare batch normalization vs layer normalization for a simple MLP on MNIST. Use 2000 training samples, 5 epochs, 5 see",
+      "confidence": 0.6,
+      "source": "evolution_store_migration",
+      "added": "2026-03-10T17:58:55.596924"
+    },
+    {
+      "principle": "",
+      "evidence": "batch normalization layer normalization",
+      "confidence": 0.6,
+      "source": "evolution_store_migration",
+      "added": "2026-03-10T17:58:55.598229"
+    },
+    {
+      "principle": "",
+      "evidence": "compare softmax attention vs — softmax",
+      "confidence": 0.6,
+      "source": "evolution_store_migration",
+      "added": "2026-03-10T17:58:55.599438"
+    },
+    {
+      "principle": "",
+      "evidence": "compare softmax attention vs",
+      "confidence": 0.6,
+      "source": "evolution_store_migration",
+      "added": "2026-03-10T17:58:55.599572"
+    },
+    {
+      "principle": "",
+      "evidence": "compare rmsnorm vs layernorm — layernorm",
+      "confidence": 0.6,
+      "source": "evolution_store_migration",
+      "added": "2026-03-10T17:58:55.599730"
+    },
+    {
+      "principle": "",
+      "evidence": "compare rmsnorm vs layernorm",
+      "confidence": 0.6,
+      "source": "evolution_store_migration",
+      "added": "2026-03-10T17:58:55.599886"
+    }
+  ],
+  "experiments": [],
+  "open_questions": [],
+  "created": "2026-03-10T17:58:55.596755"
+}

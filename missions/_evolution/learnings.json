@@ -8,8 +8,8 @@
       "context": "Any sentiment/NLI/topic classification",
       "confidence": 1.0,
       "mission_ids": [],
-      "times_applied": 3,
-      "times_helpful": 3,
+      "times_applied": 7,
+      "times_helpful": 7,
       "created_at": ""
     },
     {
@@ -20,8 +20,8 @@
       "context": "Apple Silicon Mac",
       "confidence": 1.0,
       "mission_ids": [],
-      "times_applied": 3,
-      "times_helpful": 3,
+      "times_applied": 7,
+      "times_helpful": 7,
       "created_at": ""
     },
     {
@@ -32,8 +32,8 @@
       "context": "transformers >= 4.50",
       "confidence": 1.0,
       "mission_ids": [],
-      "times_applied": 3,
-      "times_helpful": 3,
+      "times_applied": 7,
+      "times_helpful": 7,
       "created_at": ""
     },
     {
@@ -44,8 +44,8 @@
       "context": "HuggingFace datasets",
       "confidence": 1.0,
       "mission_ids": [],
-      "times_applied": 3,
-      "times_helpful": 3,
+      "times_applied": 7,
+      "times_helpful": 7,
       "created_at": ""
     },
     {
@@ -56,8 +56,8 @@
       "context": "Model-specific quirks",
       "confidence": 1.0,
       "mission_ids": [],
-      "times_applied": 3,
-      "times_helpful": 3,
+      "times_applied": 7,
+      "times_helpful": 7,
       "created_at": ""
     },
     {
@@ -94,8 +94,8 @@
       "mission_ids": [
         "mission_20260309_021523"
       ],
-      "times_applied": 3,
-      "times_helpful": 3,
+      "times_applied": 7,
+      "times_helpful": 7,
       "created_at": "2026-03-09T04:30:00"
     },
     {
@@ -104,12 +104,12 @@
       "category": "results",
       "pattern": "results_l2.json: test_accuracy=66.45",
       "context": "implement and compare dropout",
-      "confidence": 0.9999999999999999,
+      "confidence": 1.0,
       "mission_ids": [
         "mission_20260307_135217_implement_and_compare_dropout"
       ],
-      "times_applied": 3,
-      "times_helpful": 3,
+      "times_applied": 7,
+      "times_helpful": 7,
       "created_at": "2026-03-09T11:43:17"
     },
     {
@@ -118,12 +118,12 @@
       "category": "results",
       "pattern": "results_dropout.json: test_accuracy=64.82",
       "context": "implement and compare dropout",
-      "confidence": 0.9999999999999999,
+      "confidence": 1.0,
       "mission_ids": [
         "mission_20260307_135217_implement_and_compare_dropout"
       ],
-      "times_applied": 3,
-      "times_helpful": 3,
+      "times_applied": 7,
+      "times_helpful": 7,
       "created_at": "2026-03-09T11:43:17"
     },
     {
@@ -163,6 +163,20 @@
       "times_applied": 0,
       "times_helpful": 0,
       "created_at": "2026-03-10T09:52:19"
+    },
+    {
+      "id": "Laadbf9d7",
+      "type": "research_finding",
+      "category": "hypothesis",
+      "pattern": "[REFUTED] SGD with the current hyperparameters (lr=0.01, momentum=0.9) is unstable on small datasets, causing worse performance than Adam at n≤2000 — SGD at lr=0.01 achieved 29.5% at n=2000, below the expected >30% threshold. Only at n=1000 did SGD r",
+      "context": "Compare SGD vs Adam optimizer on CIFAR-10 with simple CNN. 3 epochs, 2000 training samples, seeds 42,123,456,789,1024. R",
+      "confidence": 0.8,
+      "mission_ids": [
+        "mission_20260311_021326_compare_sgd_vs_adam"
+      ],
+      "times_applied": 0,
+      "times_helpful": 0,
+      "created_at": "2026-03-11T03:01:25"
     },
     {
       "id": "L10",
@@ -385,21 +399,7 @@
       "times_applied": 0,
       "times_helpful": 0,
       "created_at": "2026-03-09T11:43:17"
-    },
-    {
-      "id": "L8c40be3d",
-      "type": "research_finding",
-      "category": "results",
-      "pattern": "LayerNorm (27.3%) slightly outperforms RMSNorm (24.9%) but the difference is NOT statistically significant (p=0.0709, Cohen's d=-2.05). LayerNorm has 512 more parameters.",
-      "context": "compare rmsnorm vs layernorm",
-      "confidence": 0.7,
-      "mission_ids": [
-        "mission_20260309_005138_compare_rmsnorm_vs_layernorm"
-      ],
-      "times_applied": 0,
-      "times_helpful": 0,
-      "created_at": "2026-03-09T11:43:17"
     }
   ],
-  "updated_at": "2026-03-10T12:05:35"
+  "updated_at": "2026-03-11T03:01:25"
 }

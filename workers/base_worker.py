@@ -360,6 +360,9 @@ If task should not be done:
 
         except Exception as e:
             elapsed = time.perf_counter() - t0
+            import traceback
+            tb = traceback.format_exc()
+            print(f"  [{self.WORKER_NAME}] TRACEBACK: {tb[-500:]}")
             result = {
                 "success": False,
                 "output": str(e),

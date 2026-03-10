@@ -1,0 +1,31 @@
+{
+  "keywords": [
+    "optimization"
+  ],
+  "principles": [
+    {
+      "principle": "",
+      "evidence": "compare sgd vs adam",
+      "confidence": 0.6,
+      "source": "evolution_store_migration",
+      "added": "2026-03-10T17:58:55.598998"
+    },
+    {
+      "principle": "",
+      "evidence": "compare sgd vs adam",
+      "confidence": 0.6,
+      "source": "evolution_store_migration",
+      "added": "2026-03-10T17:58:55.599174"
+    },
+    {
+      "principle": "",
+      "evidence": "compare sgd vs adam",
+      "confidence": 0.6,
+      "source": "evolution_store_migration",
+      "added": "2026-03-10T17:58:55.599316"
+    }
+  ],
+  "experiments": [],
+  "open_questions": [],
+  "created": "2026-03-10T17:58:55.598655"
+}

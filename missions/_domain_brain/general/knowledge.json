@@ -1,0 +1,31 @@
+{
+  "keywords": [
+    "general"
+  ],
+  "principles": [
+    {
+      "principle": "",
+      "evidence": "lora fine tuning on",
+      "confidence": 0.6,
+      "source": "evolution_store_migration",
+      "added": "2026-03-10T17:58:55.597432"
+    },
+    {
+      "principle": "",
+      "evidence": "lora fine tuning on",
+      "confidence": 0.6,
+      "source": "evolution_store_migration",
+      "added": "2026-03-10T17:58:55.597570"
+    },
+    {
+      "principle": "",
+      "evidence": "early stopping patience 2",
+      "confidence": 0.6,
+      "source": "evolution_store_migration",
+      "added": "2026-03-10T17:58:55.598340"
+    }
+  ],
+  "experiments": [],
+  "open_questions": [],
+  "created": "2026-03-10T17:58:55.597177"
+}

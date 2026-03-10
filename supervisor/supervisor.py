@@ -34,6 +34,9 @@ from core.llm_judge import LLMJudge
 from core.hypothesis_generator import HypothesisGenerator
 from core.research_validator import ResearchValidator
 from core.research_tree import ResearchTree
+from core.research_critic import critique_research_goal, critique_mid_mission
+from core.domain_brain import DomainBrain
+from core.watcher import Watcher
 from knowledge.tree import KnowledgeTree
 from supervisor.planner import TaskPlanner
 from supervisor.reporter import Reporter
@@ -160,6 +163,16 @@ class Supervisor:
         # Evolution store (cross-mission learning)
         self.evolution_store = evolution_store
 
+        # Domain brain (structured research knowledge — Opus v2)
+        missions_dir = os.path.dirname(reports_dir.rstrip("/")) if reports_dir else ""
+        if mission_ctx:
+            missions_dir = os.path.dirname(mission_ctx.workspace_dir.rstrip("/"))
+            missions_dir = os.path.dirname(missions_dir)  # up from workspace to missions/
+        self.domain_brain = DomainBrain(missions_dir, llm=llm) if missions_dir else None
+        # One-time bootstrap from evolution store if brain is empty
+        if self.domain_brain and self.evolution_store and not self.domain_brain._list_regions():
+            self.domain_brain.bootstrap_from_evolution(self.evolution_store)
+
         # Goal tracker (objective goal completion)
         self.goal_tracker = GoalTracker(
             workspace_dir or "", llm=llm,
@@ -167,6 +180,10 @@ class Supervisor:
 
         # Flow monitor (meta-supervision heuristics)
         self.flow_monitor = FlowMonitor()
+
+        # Watcher: metacognition engine (Opus v3)
+        # Separate from flow_monitor — sees execution trace only, uses LLM for meta-reflection
+        self.watcher = Watcher(llm=llm)
 
         # Mission state
         self.goal = ""
@@ -249,6 +266,8 @@ class Supervisor:
             # Round 17: research tree
             "research_tree": self.research_tree.to_dict() if self.research_tree else None,
             "active_branch_id": self._active_branch_id,
+            # Opus v3: watcher metacognition
+            "watcher": self.watcher.to_dict(),
         }
         # Flush execution log to disk before checkpoint
         if self.execution_log:
@@ -321,6 +340,10 @@ class Supervisor:
         if "research_tree" in cp and cp["research_tree"]:
             self.research_tree = ResearchTree.from_dict(cp["research_tree"])
             self._active_branch_id = cp.get("active_branch_id", self.research_tree.root_id)
+        # Restore watcher (Opus v3)
+        if "watcher" in cp and cp["watcher"]:
+            self.watcher = Watcher.from_dict(cp["watcher"], llm=self.llm)
+
         # Restore hypothesis chain (Round 16.2)
         if "hypothesis_chain" in cp:
             from core.hypothesis_generator import HypothesisRecord, Hypothesis
@@ -393,6 +416,40 @@ class Supervisor:
                 # These are noted in _design_verdict for the planner to consider
                 for iss in verdict.issues:
                     print(f"  [Validator] [{iss.severity}] {iss.description}")
+
+        # ── Research Critic: adversarial debate (Opus v2) ──
+        if not self.literature_only:
+            domain_context = ""
+            if self.domain_brain:
+                domain_context = self.domain_brain.get_relevant_context(self.direction)
+                if domain_context:
+                    print(f"  [Brain] Loaded domain context ({len(domain_context)} chars)")
+
+            print(f"  [Critic] Running adversarial debate...")
+            critique = critique_research_goal(
+                self.llm, self.direction,
+                domain_context=domain_context,
+            )
+            self._critique = critique
+
+            if not critique.worth_doing:
+                print(f"  [Critic] NOT WORTH DOING (confidence={critique.confidence:.1f})")
+                print(f"  [Critic] Reason: {critique.scientific_value}")
+                for flaw in critique.design_flaws:
+                    print(f"    - {flaw}")
+                if critique.revised_goal:
+                    print(f"  [Critic] Suggested revision: {critique.revised_goal[:120]}")
+                    self.direction = critique.revised_goal
+                    print(f"  [Critic] → Using revised goal")
+            else:
+                print(f"  [Critic] Worth doing (confidence={critique.confidence:.1f}): {critique.scientific_value[:100]}")
+                if critique.improvements:
+                    print(f"  [Critic] Improvements suggested:")
+                    for imp in critique.improvements[:3]:
+                        print(f"    + {imp}")
+                if critique.revised_goal and critique.confidence > 0.6:
+                    print(f"  [Critic] → Adopting improved goal")
+                    self.direction = critique.revised_goal
 
         # Parse goal into measurable sub-goals
         print(f"  [GoalTracker] Parsing goal into sub-goals...")
@@ -506,6 +563,44 @@ class Supervisor:
 
             self.cycle += 1
 
+            # ── Mid-mission critique (Opus v2): at cycle 5, challenge our approach ──
+            if (self.cycle == 5 and not self.literature_only
+                    and hasattr(self, '_critique') and self.mission_ctx):
+                try:
+                    current_results = {}
+                    import glob as _glob
+                    ws = self.mission_ctx.workspace_dir
+                    for jf in _glob.glob(os.path.join(ws, "results*.json"))[:3]:
+                        with open(jf) as f:
+                            current_results[os.path.basename(jf)] = json.load(f)
+
+                    if current_results:
+                        domain_ctx = self.domain_brain.get_relevant_context(self.direction) if self.domain_brain else ""
+                        mid_critique = critique_mid_mission(
+                            self.llm, self.direction,
+                            self.completed_tasks, current_results,
+                            domain_context=domain_ctx,
+                        )
+                        print(f"  [Critic] Mid-mission: {mid_critique.debate_summary[:120]}")
+                        if mid_critique.revised_goal and not mid_critique.worth_doing:
+                            print(f"  [Critic] Pivot suggested: {mid_critique.revised_goal[:100]}")
+                            # Force pivot: clear queue, inject fix task at front
+                            self.working_memory += f"\n\n⚠️ [CRITIC PIVOT — MANDATORY]: {mid_critique.debate_summary}"
+                            pivot_task = {
+                                "worker": "coder",
+                                "task": mid_critique.revised_goal[:500],
+                                "priority": 0,
+                            }
+                            self.task_queue.insert(0, pivot_task)
+                            # Remove remaining tasks that depend on the old approach
+                            print(f"  [Critic] Injected pivot task at front of queue")
+                        elif mid_critique.improvements:
+                            for imp in mid_critique.improvements[:2]:
+                                print(f"  [Critic] Improvement: {imp}")
+                            self.working_memory += f"\n\n[CRITIC SUGGESTIONS]: {'; '.join(mid_critique.improvements[:2])}"
+                except Exception as e:
+                    print(f"  [Critic] Mid-mission critique skipped: {e}")
+
             # ── Live terminal: check for user messages ──
             self._check_live_messages()
 
@@ -559,6 +654,29 @@ class Supervisor:
                                   "If no results exist, report that and summarize literature findings.",
                           "reason": "Consecutive coder failures — pivot to evaluation"}
                 action_type = "benchmark"
+
+            # ── Watcher hard intervention (Opus v3): override decision if critical ──
+            if self.watcher.verdicts:
+                last_verdict = self.watcher.verdicts[-1]
+                if last_verdict.frustration >= Watcher.CRITICAL_THRESHOLD:
+                    if last_verdict.directive == "abandon":
+                        print(f"  [Watcher] HARD OVERRIDE: abandon → report with what we have")
+                        action = {"action": "report",
+                                  "task": f"Write report with current results (watcher: abandon directive)",
+                                  "reason": f"Watcher: {last_verdict.reasoning[:150]}"}
+                        action_type = "report"
+                    elif last_verdict.directive == "report_now":
+                        print(f"  [Watcher] HARD OVERRIDE: report_now")
+                        action = {"action": "report",
+                                  "task": "Write report — watcher determined enough data collected",
+                                  "reason": f"Watcher: {last_verdict.reasoning[:150]}"}
+                        action_type = "report"
+                    elif last_verdict.directive == "pivot" and action_type in ("implement", "fix_code"):
+                        print(f"  [Watcher] SOFT OVERRIDE: pivot → replan")
+                        action = {"action": "replan",
+                                  "task": self.direction,
+                                  "reason": f"Watcher pivot: {last_verdict.reasoning[:150]}"}
+                        action_type = "replan"
 
             # R20 fix: prevent re-dispatching tasks that already failed 2+ times
             if action_type in ("implement", "write_code", "fix_code"):
@@ -685,6 +803,47 @@ class Supervisor:
                     except Exception as e:
                         print(f"  [Evolution] Reflection failed: {e}")
 
+                # Domain Brain: extract principles from this mission
+                if self.domain_brain and self.mission_ctx:
+                    try:
+                        ws = self.mission_ctx.workspace_dir
+                        # Try analysis_summary.json first, then any results JSON
+                        analysis = None
+                        for candidate in ["analysis_summary.json", "experiment_results.json",
+                                          "results.json"]:
+                            cpath = os.path.join(ws, candidate)
+                            if os.path.exists(cpath):
+                                with open(cpath) as f:
+                                    analysis = json.load(f)
+                                break
+                        # Fallback: gather all results JSONs
+                        if not analysis:
+                            import glob as _glob
+                            for jf in sorted(_glob.glob(os.path.join(ws, "results*.json")))[:3]:
+                                with open(jf) as f:
+                                    analysis = analysis or {}
+                                    analysis[os.path.basename(jf)] = json.load(f)
+                        if analysis:
+                            hyp_chain = [r.to_dict() for r in self.hypothesis_gen.history] if self.hypothesis_gen.history else None
+                            self.domain_brain.learn_from_mission(
+                                self.goal, analysis, hyp_chain,
+                            )
+                    except Exception as e:
+                        print(f"  [Brain] Learning failed: {e}")
+
+                # Concept Mining: consolidate findings → concepts (Knowledge Pressure)
+                if self.domain_brain:
+                    try:
+                        n_concepts = self.domain_brain.consolidate()
+                        if n_concepts:
+                            print(f"  [Brain] Concept consolidation: {n_concepts} new concepts")
+                        health = self.domain_brain.get_knowledge_health()
+                        if health["regions_needing_consolidation"]:
+                            print(f"  [Brain] Regions needing concepts: "
+                                  f"{', '.join(health['regions_needing_consolidation'])}")
+                    except Exception as e:
+                        print(f"  [Brain] Concept mining failed: {e}")
+
                 return report
 
             elif action_type == "report":
@@ -797,6 +956,18 @@ class Supervisor:
                             self._consecutive_failures[worker_to_skip] = 0
                             print(f"  [FlowMonitor] Hard override: skipping {worker_to_skip}")
 
+            # ── Step 4d: Watcher metacognition (Opus v3) ──────
+            try:
+                watcher_verdict = self.watcher.evaluate()
+                if watcher_verdict.status != "progressing":
+                    print(f"  [Watcher] {watcher_verdict.status.upper()} "
+                          f"(frustration={watcher_verdict.frustration:.2f})")
+                    if watcher_verdict.directive:
+                        print(f"  [Watcher] Directive: {watcher_verdict.directive} — "
+                              f"{watcher_verdict.reasoning[:120]}")
+            except Exception as e:
+                print(f"  [Watcher] Evaluation failed: {e}")
+
             # ── Step 5: Checkpoint ─────────────────────────────
             self._save_checkpoint()
 
@@ -848,6 +1019,33 @@ class Supervisor:
                 print(f"  [Evolution] Learnings saved ({len(self.evolution_store.learnings)} total)")
             except Exception as e:
                 print(f"  [Evolution] Reflection failed: {e}")
+
+        # Domain Brain: learn from this mission + concept mining
+        if self.domain_brain and self.mission_ctx:
+            try:
+                ws = self.mission_ctx.workspace_dir
+                analysis = None
+                for candidate in ["analysis_summary.json", "experiment_results.json", "results.json"]:
+                    cpath = os.path.join(ws, candidate)
+                    if os.path.exists(cpath):
+                        with open(cpath) as f:
+                            analysis = json.load(f)
+                        break
+                if not analysis:
+                    import glob as _glob
+                    for jf in sorted(_glob.glob(os.path.join(ws, "results*.json")))[:3]:
+                        with open(jf) as f:
+                            analysis = analysis or {}
+                            analysis[os.path.basename(jf)] = json.load(f)
+                if analysis:
+                    hyp_chain = [r.to_dict() for r in self.hypothesis_gen.history] if self.hypothesis_gen.history else None
+                    self.domain_brain.learn_from_mission(self.goal, analysis, hyp_chain)
+                # Concept Mining: compress findings → concepts
+                n_concepts = self.domain_brain.consolidate()
+                if n_concepts:
+                    print(f"  [Brain] Concept consolidation: {n_concepts} new concepts")
+            except Exception as e:
+                print(f"  [Brain] Post-mission learning failed: {e}")
 
         return report
 
@@ -976,6 +1174,28 @@ class Supervisor:
                 self.research_tree.should_backtrack(self._active_branch_id)):
             parts.append('\n⚠️ Current branch scores below parent — consider "backtrack".')
         return "\n".join(parts)
+
+    def _format_brain_for_prompt(self) -> str:
+        """Format domain brain context for supervisor decision prompt.
+
+        Implements Hierarchical Retrieval: concepts first, then findings.
+        """
+        if not self.domain_brain:
+            return ""
+
+        parts = []
+
+        # Concepts layer (higher-level, more efficient for reasoning)
+        concepts = self.domain_brain.get_concepts_for_prompt(self.direction)
+        if concepts:
+            parts.append(concepts)
+
+        # Findings layer (raw knowledge, for detail)
+        ctx = self.domain_brain.get_relevant_context(self.direction)
+        if ctx:
+            parts.append(f"## Domain Brain (accumulated findings)\n{ctx}")
+
+        return "\n".join(parts) if parts else ""
 
     def _tree_backtrack(self, reason: str = ""):
         """Backtrack: prune current branch, select next via UCB1."""
@@ -1638,6 +1858,8 @@ Write the working_memory as bullet points. Be concise but complete."""
 
 {self._format_tree_for_prompt()}
 
+{self._format_brain_for_prompt()}
+
 ## Knowledge Base
 - Total: {knowledge_stats['total_items']} items
 - By category: {json.dumps(knowledge_stats['by_category'], default=str)}
@@ -1682,6 +1904,8 @@ If you detect any of these patterns in the working memory or past results, choos
 
 {flow_text}
 
+{self.watcher.format_for_prompt()}
+
 Respond with ONLY JSON:
 {{"action": "...", "task": "specific description", "worker": "explorer|coder|reviewer", "reason": "why this action based on your working memory", "error_context": "if fix_code"}}
 """
@@ -1692,9 +1916,29 @@ Respond with ONLY JSON:
                 {"role": "user", "content": prompt},
             ])
             content = response["choices"][0]["message"]["content"]
-            json_match = re.search(r'\{[\s\S]*?\}', content)
-            if json_match:
-                return json.loads(json_match.group())
+            # Find the outermost JSON object (handles nested braces)
+            start = content.find('{')
+            if start != -1:
+                depth = 0
+                in_string = False
+                escape = False
+                for i, ch in enumerate(content[start:], start):
+                    if escape:
+                        escape = False
+                        continue
+                    if ch == '\\' and in_string:
+                        escape = True
+                        continue
+                    if ch == '"' and not escape:
+                        in_string = not in_string
+                        continue
+                    if not in_string:
+                        if ch == '{':
+                            depth += 1
+                        elif ch == '}':
+                            depth -= 1
+                            if depth == 0:
+                                return json.loads(content[start:i+1])
         except Exception as e:
             print(f"  [Supervisor] Reflection failed: {e}")
 
@@ -1963,6 +2207,20 @@ Respond with ONLY JSON:
         except Exception as e:
             print(f"  [Reward] scoring failed: {e}")
 
+        # ── Watcher: record trace event (Opus v3) ─────────────
+        try:
+            self.watcher.record(
+                cycle=self.cycle,
+                worker=worker_name,
+                action=self._last_action or "unknown",
+                success=bool(result.get("success")),
+                elapsed_s=result.get("elapsed_s", 0),
+                output=(result.get("output") or "")[:200],
+                error=(result.get("error") or "")[:200],
+            )
+        except Exception as e:
+            print(f"  [Watcher] Recording failed: {e}")
+
         # ── Explorer depth check: if too few papers, auto-queue more search ──
         if result.get("success") and worker_name == "explorer":
             self._check_explorer_depth(result, task_desc)
@@ -2204,6 +2462,14 @@ Rules:
                 evolution_guidance = (evolution_guidance + "\n\n" + research_ctx) if evolution_guidance else research_ctx
             if evolution_guidance:
                 print(f"  [Evolution] Injecting {len(self.evolution_store.get_relevant_learnings(self.direction))} learnings into planner")
+
+        # Inject Domain Brain context (structured domain knowledge)
+        if self.domain_brain:
+            brain_ctx = self.domain_brain.get_relevant_context(self.direction)
+            if brain_ctx:
+                brain_section = f"\n## Domain Brain (accumulated research knowledge)\n{brain_ctx}"
+                evolution_guidance = (evolution_guidance + brain_section) if evolution_guidance else brain_section
+                print(f"  [Brain] Injecting domain knowledge into planner")
         quality_rules = get_quality_rules(self.evolution_store, self.direction)
 
         # Inject validator notes (one-time, into planner only, not into direction)
@@ -2376,7 +2642,8 @@ Rules:
         try:
             from core.deterministic_verifier import DeterministicVerifier
             verifier = DeterministicVerifier()
-            det_result = verifier.verify(self.workspace_dir)
+            ws_dir = self.mission_ctx.workspace_dir if self.mission_ctx else ""
+            det_result = verifier.verify(ws_dir)
             fatal_issues = [i for i in det_result.issues
                             if any(k in i for k in ("FATAL", "INVALID", "ABSURD", "BROKEN"))]
             if fatal_issues:

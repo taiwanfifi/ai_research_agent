@@ -293,6 +293,9 @@ def read_file(filename: str) -> dict:
 
 def pip_install(packages: str) -> dict:
     """安裝 Python 套件（例如 'torch numpy transformers'）"""
+    # Defensive: handle list input from LLM
+    if isinstance(packages, list):
+        packages = " ".join(str(p) for p in packages)
     pkg_list = packages.strip().split()
     if not pkg_list:
         return {"success": False, "error": "No packages specified"}
@@ -300,7 +303,7 @@ def pip_install(packages: str) -> dict:
     # Safety: block obviously dangerous packages
     blocked = {"os", "sys", "shutil", "subprocess", "ctypes", "socket"}
     for p in pkg_list:
-        base = p.split("==")[0].split(">=")[0].split("<=")[0].lower()
+        base = str(p).split("==")[0].split(">=")[0].split("<=")[0].lower()
         if base in blocked:
             return {"success": False, "error": f"Package '{base}' is blocked for safety"}
 

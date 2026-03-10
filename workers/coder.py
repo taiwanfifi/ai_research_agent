@@ -224,7 +224,9 @@ Respond in the same language as the task."""
             }
 
         # Spec compliance check (discrepancy monitor)
-        spec_warnings = self._check_spec_compliance(task, stdout_capture or full_output)
+        # stdout_capture is a list — join to string for spec compliance check
+        spec_output = "\n".join(stdout_capture) if isinstance(stdout_capture, list) else (stdout_capture or full_output)
+        spec_warnings = self._check_spec_compliance(task, spec_output)
         if spec_warnings:
             for w in spec_warnings:
                 print(f"  [coder] Spec: {w}")
@@ -240,12 +242,16 @@ Respond in the same language as the task."""
         return result
 
     @staticmethod
-    def _check_spec_compliance(task: str, output: str) -> list[str]:
+    def _check_spec_compliance(task: str, output) -> list[str]:
         """Deterministic spec compliance: extract numbers from task, verify in output.
 
         Returns list of warning strings. Empty if all specs found.
         """
         import re
+        # Defensive: handle list input (stdout_capture is a list)
+        if isinstance(output, list):
+            output = "\n".join(str(s) for s in output)
+        output = str(output or "")
         warnings = []
 
         # Extract spec numbers from task description

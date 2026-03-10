@@ -1,0 +1,59 @@
+{
+  "keywords": [
+    "regularization"
+  ],
+  "principles": [
+    {
+      "principle": "",
+      "evidence": "implement and compare dropout",
+      "confidence": 0.6,
+      "source": "evolution_store_migration",
+      "added": "2026-03-10T17:58:55.596499"
+    },
+    {
+      "principle": "",
+      "evidence": "implement and compare dropout",
+      "confidence": 0.6,
+      "source": "evolution_store_migration",
+      "added": "2026-03-10T17:58:55.596628"
+    },
+    {
+      "principle": "",
+      "evidence": "implement and compare dropout",
+      "confidence": 0.6,
+      "source": "evolution_store_migration",
+      "added": "2026-03-10T17:58:55.597697"
+    },
+    {
+      "principle": "",
+      "evidence": "l2 dropout cnn cifar",
+      "confidence": 0.6,
+      "source": "evolution_store_migration",
+      "added": "2026-03-10T17:58:55.597832"
+    },
+    {
+      "principle": "",
+      "evidence": "l2 dropout cnn cifar",
+      "confidence": 0.6,
+      "source": "evolution_store_migration",
+      "added": "2026-03-10T17:58:55.597963"
+    },
+    {
+      "principle": "",
+      "evidence": "l2 dropout cnn cifar",
+      "confidence": 0.6,
+      "source": "evolution_store_migration",
+      "added": "2026-03-10T17:58:55.598094"
+    },
+    {
+      "principle": "",
+      "evidence": "compare dropout vs dropconnect",
+      "confidence": 0.6,
+      "source": "evolution_store_migration",
+      "added": "2026-03-10T17:58:55.598462"
+    }
+  ],
+  "experiments": [],
+  "open_questions": [],
+  "created": "2026-03-10T17:58:55.596186"
+}

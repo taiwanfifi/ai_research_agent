@@ -81,6 +81,93 @@ def web_search(query: str, max_results: int = 8) -> dict:
         return {"success": False, "query": query, "error": str(e)}
 
 
+def search_google_scholar(query: str, max_results: int = 10) -> dict:
+    """Search Google Scholar for academic papers (citation-ranked).
+
+    Returns: {"success": bool, "query": str, "papers": [{"title", "url", "snippet", "cited_by", "year"}]}
+    """
+    if not BeautifulSoup:
+        return {"success": False, "query": query, "error": "beautifulsoup4 not installed"}
+
+    search_url = f"https://scholar.google.com/scholar?q={quote_plus(query)}&hl=en&num={max_results}"
+    try:
+        headers = {**_BROWSER_HEADERS, "Referer": "https://scholar.google.com/"}
+        if HAS_CURL_CFFI:
+            resp = cffi_requests.get(search_url, headers=headers,
+                                     impersonate="chrome", timeout=15)
+            html = resp.text
+            status = resp.status_code
+        elif httpx:
+            with httpx.Client(timeout=15, follow_redirects=True) as client:
+                resp = client.get(search_url, headers=headers)
+                html = resp.text
+                status = resp.status_code
+        else:
+            from urllib.request import urlopen, Request
+            req = Request(search_url, headers=headers)
+            with urlopen(req, timeout=15) as resp_obj:
+                html = resp_obj.read().decode("utf-8", errors="replace")
+                status = resp_obj.status
+
+        if status >= 400:
+            return {"success": False, "query": query, "error": f"HTTP {status} — Scholar may be rate-limiting"}
+
+        soup = BeautifulSoup(html, "html.parser")
+        papers = []
+
+        for item in soup.select(".gs_r.gs_or.gs_scl")[:max_results]:
+            title_tag = item.select_one(".gs_rt a")
+            if not title_tag:
+                title_tag = item.select_one(".gs_rt")
+            if not title_tag:
+                continue
+
+            title = title_tag.get_text(strip=True)
+            url = title_tag.get("href", "") if title_tag.name == "a" else ""
+
+            # Snippet / abstract
+            snippet_tag = item.select_one(".gs_rs")
+            snippet = snippet_tag.get_text(strip=True) if snippet_tag else ""
+
+            # Author/venue/year line
+            info_tag = item.select_one(".gs_a")
+            info_text = info_tag.get_text(strip=True) if info_tag else ""
+
+            # Extract year from info
+            import re as _re
+            year_match = _re.search(r'\b(19|20)\d{2}\b', info_text)
+            year = year_match.group() if year_match else ""
+
+            # Citation count
+            cited_by = 0
+            cite_tag = item.select_one(".gs_fl a")
+            if cite_tag:
+                for link in item.select(".gs_fl a"):
+                    link_text = link.get_text(strip=True)
+                    if "Cited by" in link_text:
+                        cite_match = _re.search(r'Cited by (\d+)', link_text)
+                        if cite_match:
+                            cited_by = int(cite_match.group(1))
+                        break
+
+            papers.append({
+                "title": title,
+                "url": url,
+                "snippet": snippet,
+                "authors_venue": info_text,
+                "year": year,
+                "cited_by": cited_by,
+            })
+
+        if not papers and "unusual traffic" in html.lower():
+            return {"success": False, "query": query,
+                    "error": "Google Scholar CAPTCHA — too many requests. Use web_search as fallback."}
+
+        return {"success": True, "query": query, "papers": papers}
+    except Exception as e:
+        return {"success": False, "query": query, "error": str(e)}
+
+
 def web_fetch(url: str, max_chars: int = 8000) -> dict:
     """Fetch a URL and extract readable text content.
 
@@ -135,6 +222,21 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "search_google_scholar",
+            "description": "Search Google Scholar for academic papers. Returns citation-ranked results with titles, snippets, citation counts, and years. Use this FIRST before arxiv for broader academic coverage. Falls back gracefully if rate-limited.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Academic search query (e.g. 'batch normalization transformer training stability')"},
+                    "max_results": {"type": "integer", "description": "Max results (1-15)", "default": 10},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "web_search",
             "description": "Search the web using DuckDuckGo. Use this to find blog posts, tutorials, discussions, and resources not available through academic paper databases. Good for finding practical implementations, community benchmarks, and recent developments.",
             "parameters": {
@@ -165,6 +267,7 @@ TOOLS = [
 ]
 
 TOOL_FUNCTIONS = {
+    "search_google_scholar": search_google_scholar,
     "web_search": web_search,
     "web_fetch": web_fetch,
 }

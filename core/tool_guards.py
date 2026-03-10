@@ -108,9 +108,11 @@ def guard_run_python_code(code: str, workspace_dir: str = "",
     return None
 
 
-def guard_pip_install(packages: str, **kwargs) -> dict | None:
+def guard_pip_install(packages, **kwargs) -> dict | None:
     """Preflight checks before installing packages."""
-    pkg_list = packages.strip().split()
+    if isinstance(packages, list):
+        packages = " ".join(str(p) for p in packages)
+    pkg_list = str(packages).strip().split()
 
     # Block bitsandbytes on Mac
     for p in pkg_list:

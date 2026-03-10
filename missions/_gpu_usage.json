@@ -1187,5 +1187,283 @@
     ],
     "data_transferred_mb": 0.0,
     "status": "completed"
+  },
+  {
+    "session_id": "gpu_1773143949",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32633388",
+    "gpu_model": "RTX 3090",
+    "gpu_ram_gb": 24576,
+    "cost_per_hour": 0.08092592592592593,
+    "started_at": "2026-03-10T19:59:09",
+    "stopped_at": "2026-03-10T20:05:53",
+    "total_hours": 0.1123,
+    "total_cost": 0.0091,
+    "tasks_run": [],
+    "data_transferred_mb": 0.0,
+    "status": "error"
+  },
+  {
+    "session_id": "gpu_1773144386",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32633698",
+    "gpu_model": "RTX 5060 Ti",
+    "gpu_ram_gb": 16311,
+    "cost_per_hour": 0.0703148148148148,
+    "started_at": "2026-03-10T20:06:26",
+    "stopped_at": "2026-03-10T20:08:49",
+    "total_hours": 0.0398,
+    "total_cost": 0.0028,
+    "tasks_run": [
+      {
+        "task": "quick_gpu_run",
+        "duration_s": 143,
+        "success": true
+      }
+    ],
+    "data_transferred_mb": 0.0,
+    "status": "completed"
+  },
+  {
+    "session_id": "gpu_1773144554",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32633783",
+    "gpu_model": "RTX 3090",
+    "gpu_ram_gb": 24576,
+    "cost_per_hour": 0.10898148148148148,
+    "started_at": "2026-03-10T20:09:14",
+    "stopped_at": "2026-03-10T20:13:34",
+    "total_hours": 0.0724,
+    "total_cost": 0.0079,
+    "tasks_run": [
+      {
+        "task": "quick_gpu_run",
+        "duration_s": 260,
+        "success": true
+      }
+    ],
+    "data_transferred_mb": 0.0,
+    "status": "completed"
+  },
+  {
+    "session_id": "gpu_1773144839",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32633898",
+    "gpu_model": "RTX 5060 Ti",
+    "gpu_ram_gb": 16311,
+    "cost_per_hour": 0.06805555555555555,
+    "started_at": "2026-03-10T20:13:59",
+    "stopped_at": "2026-03-10T20:21:30",
+    "total_hours": 0.1255,
+    "total_cost": 0.0085,
+    "tasks_run": [],
+    "data_transferred_mb": 0.0,
+    "status": "error"
+  },
+  {
+    "session_id": "gpu_1773145979",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32634794",
+    "gpu_model": "RTX 5060 Ti",
+    "gpu_ram_gb": 16311,
+    "cost_per_hour": 0.0703148148148148,
+    "started_at": "2026-03-10T20:32:59",
+    "stopped_at": "2026-03-10T20:34:54",
+    "total_hours": 0.032,
+    "total_cost": 0.0022,
+    "tasks_run": [
+      {
+        "task": "quick_gpu_run",
+        "duration_s": 115,
+        "success": true
+      }
+    ],
+    "data_transferred_mb": 0.0,
+    "status": "completed"
+  },
+  {
+    "session_id": "gpu_1773146125",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32634936",
+    "gpu_model": "RTX A4000",
+    "gpu_ram_gb": 16376,
+    "cost_per_hour": 0.07285185185185185,
+    "started_at": "2026-03-10T20:35:25",
+    "stopped_at": "2026-03-10T20:46:40",
+    "total_hours": 0.1875,
+    "total_cost": 0.0137,
+    "tasks_run": [
+      {
+        "task": "quick_gpu_run",
+        "duration_s": 675,
+        "success": true
+      }
+    ],
+    "data_transferred_mb": 0.0,
+    "status": "completed"
+  },
+  {
+    "session_id": "gpu_1773157222",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32642416",
+    "gpu_model": "Tesla P40",
+    "gpu_ram_gb": 24576,
+    "cost_per_hour": 0.10606481481481482,
+    "started_at": "2026-03-10T23:40:22",
+    "stopped_at": "2026-03-10T23:41:57",
+    "total_hours": 0.0264,
+    "total_cost": 0.0028,
+    "tasks_run": [
+      {
+        "task": "quick_gpu_run",
+        "duration_s": 95,
+        "success": true
+      }
+    ],
+    "data_transferred_mb": 0.0,
+    "status": "completed"
+  },
+  {
+    "session_id": "gpu_1773157343",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32642551",
+    "gpu_model": "Tesla P40",
+    "gpu_ram_gb": 24576,
+    "cost_per_hour": 0.10606481481481482,
+    "started_at": "2026-03-10T23:42:23",
+    "stopped_at": "2026-03-11T00:43:21",
+    "total_hours": 1.0163,
+    "total_cost": 0.1078,
+    "tasks_run": [],
+    "data_transferred_mb": 0.0,
+    "status": "error"
+  },
+  {
+    "session_id": "gpu_1773161024",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32645371",
+    "gpu_model": "Tesla P40",
+    "gpu_ram_gb": 24576,
+    "cost_per_hour": 0.10606481481481482,
+    "started_at": "2026-03-11T00:43:44",
+    "stopped_at": "2026-03-11T01:12:28",
+    "total_hours": 0.479,
+    "total_cost": 0.0508,
+    "tasks_run": [
+      {
+        "task": "quick_gpu_run",
+        "duration_s": 1725,
+        "success": true
+      }
+    ],
+    "data_transferred_mb": 0.0,
+    "status": "completed"
+  },
+  {
+    "session_id": "gpu_1773162769",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32646458",
+    "gpu_model": "Tesla P40",
+    "gpu_ram_gb": 24576,
+    "cost_per_hour": 0.10606481481481482,
+    "started_at": "2026-03-11T01:12:49",
+    "stopped_at": "2026-03-11T01:16:19",
+    "total_hours": 0.0586,
+    "total_cost": 0.0062,
+    "tasks_run": [],
+    "data_transferred_mb": 0.0,
+    "status": "error"
+  },
+  {
+    "session_id": "gpu_1773163872",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32647168",
+    "gpu_model": "Tesla P40",
+    "gpu_ram_gb": 24576,
+    "cost_per_hour": 0.10606481481481482,
+    "started_at": "2026-03-11T01:31:12",
+    "stopped_at": "2026-03-11T01:52:14",
+    "total_hours": 0.3508,
+    "total_cost": 0.0372,
+    "tasks_run": [],
+    "data_transferred_mb": 0.0,
+    "status": "error"
+  },
+  {
+    "session_id": "gpu_1773167312",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32649282",
+    "gpu_model": "Tesla P40",
+    "gpu_ram_gb": 24576,
+    "cost_per_hour": 0.10606481481481482,
+    "started_at": "2026-03-11T02:28:32",
+    "stopped_at": "2026-03-11T02:37:14",
+    "total_hours": 0.1451,
+    "total_cost": 0.0154,
+    "tasks_run": [
+      {
+        "task": "quick_gpu_run",
+        "duration_s": 522,
+        "success": true
+      }
+    ],
+    "data_transferred_mb": 0.0,
+    "status": "completed"
+  },
+  {
+    "session_id": "gpu_1773167875",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32649639",
+    "gpu_model": "RTX 3090",
+    "gpu_ram_gb": 24576,
+    "cost_per_hour": 0.09205555555555556,
+    "started_at": "2026-03-11T02:37:55",
+    "stopped_at": "2026-03-11T02:42:31",
+    "total_hours": 0.0769,
+    "total_cost": 0.0071,
+    "tasks_run": [
+      {
+        "task": "quick_gpu_run",
+        "duration_s": 277,
+        "success": true
+      }
+    ],
+    "data_transferred_mb": 0.0,
+    "status": "completed"
+  },
+  {
+    "session_id": "gpu_1773168229",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32649827",
+    "gpu_model": "GTX 1080",
+    "gpu_ram_gb": 8192,
+    "cost_per_hour": 0.04138888888888889,
+    "started_at": "2026-03-11T02:43:49",
+    "stopped_at": "2026-03-11T02:47:53",
+    "total_hours": 0.0678,
+    "total_cost": 0.0028,
+    "tasks_run": [
+      {
+        "task": "quick_gpu_run",
+        "duration_s": 244,
+        "success": true
+      }
+    ],
+    "data_transferred_mb": 0.0,
+    "status": "completed"
   }
 ]
