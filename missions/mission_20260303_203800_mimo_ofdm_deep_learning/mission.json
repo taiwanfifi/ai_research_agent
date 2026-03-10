@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260303_203800_mimo_ofdm_deep_learning",
+  "goal": "研究 MIMO-OFDM 系統中用 deep learning 做 channel estimation 的方法，找論文後用 PyTorch 實作一個簡化版的 DL-based channel estimator 並跟 LS estimator 做比較",
+  "direction": "研究 MIMO-OFDM 系統中用 deep learning 做 channel estimation 的方法，找論文後用 PyTorch 實作一個簡化版的 DL-based channel estimator 並跟 LS estimator 做比較",
+  "slug": "mimo_ofdm_deep_learning",
+  "created_at": "2026-03-03T20:38:00",
+  "language": "zh",
+  "cross_knowledge": false,
+  "status": "running"
+}

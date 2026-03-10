@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260307_215051_investigate_whether_knowledge_distillation",
+  "goal": "investigate whether knowledge distillation can compress BERT while preserving accuracy on text classification, implement and compare student models of different sizes",
+  "direction": "investigate whether knowledge distillation can compress BERT while preserving accuracy on text classification, implement and compare student models of different sizes",
+  "slug": "investigate_whether_knowledge_distillation",
+  "created_at": "2026-03-07T21:50:51",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}

@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260309_174207_compare_batch_normalization_placement",
+  "goal": "Compare batch normalization placement strategies in a 4-layer CNN for CIFAR-10: pre-activation BN (before ReLU) vs post-activation BN (after ReLU). Test with batch sizes 32 and 128 to see if placement interacts with batch size. 3 seeds (42, 123, 456), 5 epochs, 2000 training samples. Paired t-test and Cohen's d.",
+  "direction": "Compare batch normalization placement strategies in a 4-layer CNN for CIFAR-10: pre-activation BN (before ReLU) vs post-activation BN (after ReLU). Test with batch sizes 32 and 128 to see if placement interacts with batch size. 3 seeds (42, 123, 456), 5 epochs, 2000 training samples. Paired t-test and Cohen's d.",
+  "slug": "compare_batch_normalization_placement",
+  "created_at": "2026-03-09T17:42:07",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}

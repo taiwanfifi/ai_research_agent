@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260309_143950_compare_learning_rate_warmup",
+  "goal": "Compare learning rate warmup strategies (linear warmup vs cosine warmup vs no warmup) on DistilBERT SST-2 classification. 3 seeds (42, 123, 456), 3 epochs, 2000 training samples, paired t-test.",
+  "direction": "Compare learning rate warmup strategies (linear warmup vs cosine warmup vs no warmup) on DistilBERT SST-2 classification. 3 seeds (42, 123, 456), 3 epochs, 2000 training samples, paired t-test.",
+  "slug": "compare_learning_rate_warmup",
+  "created_at": "2026-03-09T14:39:50",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}

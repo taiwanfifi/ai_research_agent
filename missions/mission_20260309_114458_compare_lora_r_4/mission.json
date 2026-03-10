@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260309_114458_compare_lora_r_4",
+  "goal": "Compare LoRA r=4 vs r=16 fine-tuning DistilBERT on SST-2. Use 3000 training samples, 3 seeds (42 123 456), 3 epochs. Report accuracy with paired t-test. Use GPU if available.",
+  "direction": "Compare LoRA r=4 vs r=16 fine-tuning DistilBERT on SST-2. Use 3000 training samples, 3 seeds (42 123 456), 3 epochs. Report accuracy with paired t-test. Use GPU if available.",
+  "slug": "compare_lora_r_4",
+  "created_at": "2026-03-09T11:44:58",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "running"
+}

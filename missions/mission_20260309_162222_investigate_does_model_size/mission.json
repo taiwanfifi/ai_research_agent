@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260309_162222_investigate_does_model_size",
+  "goal": "Investigate: Does model size affect the benefit of learning rate warmup? Compare DistilBERT (66M) with a smaller model (TinyBERT or albert-base) on SST-2. Hypothesis: smaller models benefit MORE from warmup because their parameter space is more sensitive to initial optimization. 3 seeds (42, 123, 456), 3 epochs, 2000 samples, paired t-test.",
+  "direction": "Investigate: Does model size affect the benefit of learning rate warmup? Compare DistilBERT (66M) with a smaller model (TinyBERT or albert-base) on SST-2. Hypothesis: smaller models benefit MORE from warmup because their parameter space is more sensitive to initial optimization. 3 seeds (42, 123, 456), 3 epochs, 2000 samples, paired t-test.",
+  "slug": "investigate_does_model_size",
+  "created_at": "2026-03-09T16:22:22",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}

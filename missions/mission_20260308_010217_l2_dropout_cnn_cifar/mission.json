@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260308_010217_l2_dropout_cnn_cifar",
+  "goal": "比較 L2 正則化和 Dropout 對 CNN 在 CIFAR-10 子集上的效果，訓練並用統計檢定比較",
+  "direction": "比較 L2 正則化和 Dropout 對 CNN 在 CIFAR-10 子集上的效果，訓練並用統計檢定比較",
+  "slug": "l2_dropout_cnn_cifar",
+  "created_at": "2026-03-08T01:02:17",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}

@@ -1,0 +1,149 @@
+{
+  "goal": "implement and benchmark LoRA PEFT on DistilGPT-2",
+  "max_cycles": 8,
+  "timestamp": "2026-03-04T19:46:50",
+  "configs": [
+    {
+      "config": "classic",
+      "pipeline_mode": "classic",
+      "mission_id": "mission_20260304_180853_implement_and_benchmark_lora",
+      "success": true,
+      "elapsed_s": 2561.4,
+      "score": {
+        "mission_id": "mission_20260304_180853_implement_and_benchmark_lora",
+        "overall": 3.75,
+        "grade": "D",
+        "scored_at": "2026-03-04T18:51:35",
+        "dimensions": [
+          {
+            "name": "literature",
+            "score": 3.0,
+            "weight": 0.15,
+            "evidence": [
+              "1/1 explorer tasks succeeded",
+              "1 items in papers category"
+            ]
+          },
+          {
+            "name": "code",
+            "score": 6.0,
+            "weight": 0.2,
+            "evidence": [
+              "3 Python files in workspace",
+              "3/7 coder tasks succeeded"
+            ]
+          },
+          {
+            "name": "results",
+            "score": 0.0,
+            "weight": 0.25,
+            "evidence": [
+              "0 tasks with metric-like outputs"
+            ]
+          },
+          {
+            "name": "verification",
+            "score": 0,
+            "weight": 0.15,
+            "evidence": [
+              "101 numbers captured from stdout",
+              "avg verification: 63% over 8 tasks",
+              "4 fabrication blocks (penalty)"
+            ]
+          },
+          {
+            "name": "artifacts",
+            "score": 6.0,
+            "weight": 0.1,
+            "evidence": [
+              "2 PNG figures",
+              "4 JSON data files"
+            ]
+          },
+          {
+            "name": "report",
+            "score": 10.0,
+            "weight": 0.15,
+            "evidence": [
+              "2 report files",
+              "sections found: summary, methods, results, code, conclusion",
+              "2867 words"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "config": "structured",
+      "pipeline_mode": "structured",
+      "mission_id": "mission_20260304_185141_implement_and_benchmark_lora",
+      "success": true,
+      "elapsed_s": 3309.6,
+      "score": {
+        "mission_id": "mission_20260304_185141_implement_and_benchmark_lora",
+        "overall": 7.4,
+        "grade": "B",
+        "scored_at": "2026-03-04T19:46:50",
+        "dimensions": [
+          {
+            "name": "literature",
+            "score": 6.0,
+            "weight": 0.15,
+            "evidence": [
+              "2/2 explorer tasks succeeded",
+              "2 items in papers category"
+            ]
+          },
+          {
+            "name": "code",
+            "score": 10.0,
+            "weight": 0.2,
+            "evidence": [
+              "2 Python files in workspace",
+              "2/2 coder tasks succeeded",
+              "19/24 code runs succeeded"
+            ]
+          },
+          {
+            "name": "results",
+            "score": 10.0,
+            "weight": 0.25,
+            "evidence": [
+              "10 runs with metrics, 11 distinct metrics",
+              "5 distinct cycles with runs"
+            ]
+          },
+          {
+            "name": "verification",
+            "score": 0,
+            "weight": 0.15,
+            "evidence": [
+              "46 numbers captured from stdout",
+              "avg verification: 17% over 7 tasks",
+              "3 fabrication blocks (penalty)"
+            ]
+          },
+          {
+            "name": "artifacts",
+            "score": 5.0,
+            "weight": 0.1,
+            "evidence": [
+              "3 PNG figures",
+              "1 JSON data files"
+            ]
+          },
+          {
+            "name": "report",
+            "score": 10.0,
+            "weight": 0.15,
+            "evidence": [
+              "2 report files",
+              "sections found: summary, methods, results, code, conclusion",
+              "2346 words"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

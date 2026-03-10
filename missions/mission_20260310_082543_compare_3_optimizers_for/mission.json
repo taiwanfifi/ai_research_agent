@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260310_082543_compare_3_optimizers_for",
+  "goal": "Compare 3 optimizers for a simple CNN on CIFAR-10: Adam (lr=0.001), SGD with momentum (lr=0.01, momentum=0.9), and AdamW (lr=0.001, weight_decay=0.01). Use 2000 training samples, 10 epochs, 5 seeds (42, 123, 456, 789, 1024). Paired t-test with Holm-Bonferroni correction for 3 pairwise comparisons.",
+  "direction": "Compare 3 optimizers for a simple CNN on CIFAR-10: Adam (lr=0.001), SGD with momentum (lr=0.01, momentum=0.9), and AdamW (lr=0.001, weight_decay=0.01). Use 2000 training samples, 10 epochs, 5 seeds (42, 123, 456, 789, 1024). Paired t-test with Holm-Bonferroni correction for 3 pairwise comparisons.",
+  "slug": "compare_3_optimizers_for",
+  "created_at": "2026-03-10T08:25:43",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}

@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260309_100835_fine_tune_distilbert_on",
+  "goal": "Fine-tune DistilBERT on full SST-2 dataset using LoRA (rank=8) via remote GPU. Compare against baseline (no LoRA, freeze all but classifier head). Use gpu_run to execute training on remote GPU. Hypothesis: LoRA fine-tuning achieves higher accuracy than head-only fine-tuning while using fewer trainable parameters. Use 3 seeds (42, 123, 456), 3 epochs, batch_size=32, lr=2e-5. Report test accuracy, training time, and parameter counts. Paired t-test + Cohen's d.",
+  "direction": "Fine-tune DistilBERT on full SST-2 dataset using LoRA (rank=8) via remote GPU. Compare against baseline (no LoRA, freeze all but classifier head). Use gpu_run to execute training on remote GPU. Hypothesis: LoRA fine-tuning achieves higher accuracy than head-only fine-tuning while using fewer trainable parameters. Use 3 seeds (42, 123, 456), 3 epochs, batch_size=32, lr=2e-5. Report test accuracy, training time, and parameter counts. Paired t-test + Cohen's d.",
+  "slug": "fine_tune_distilbert_on",
+  "created_at": "2026-03-09T10:08:35",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "running"
+}

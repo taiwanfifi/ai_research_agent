@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260308_235154_compare_softmax_attention_vs",
+  "goal": "Compare Softmax Attention vs Linear Attention in a small Transformer for sequence classification. Build both models from scratch in PyTorch (no HuggingFace). Use IMDb sentiment dataset (2000 train samples, 500 test). Model: 2-layer Transformer encoder with embedding dim 128, 4 heads. Compare: accuracy, training speed, memory usage. 3 seeds (42, 123, 456), 5 epochs. Report mean ± std, paired t-test, Cohen's d.",
+  "direction": "Compare Softmax Attention vs Linear Attention in a small Transformer for sequence classification. Build both models from scratch in PyTorch (no HuggingFace). Use IMDb sentiment dataset (2000 train samples, 500 test). Model: 2-layer Transformer encoder with embedding dim 128, 4 heads. Compare: accuracy, training speed, memory usage. 3 seeds (42, 123, 456), 5 epochs. Report mean ± std, paired t-test, Cohen's d.",
+  "slug": "compare_softmax_attention_vs",
+  "created_at": "2026-03-08T23:51:54",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}

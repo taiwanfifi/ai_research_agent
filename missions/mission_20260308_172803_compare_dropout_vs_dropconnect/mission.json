@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260308_172803_compare_dropout_vs_dropconnect",
+  "goal": "Compare Dropout vs DropConnect regularization on a small classification task (MNIST subset). Train both approaches with 3 seeds, evaluate accuracy and loss, perform statistical comparison (t-test, Cohen's d). Use first 2000 MNIST samples, 2 epochs.",
+  "direction": "Compare Dropout vs DropConnect regularization on a small classification task (MNIST subset). Train both approaches with 3 seeds, evaluate accuracy and loss, perform statistical comparison (t-test, Cohen's d). Use first 2000 MNIST samples, 2 epochs.",
+  "slug": "compare_dropout_vs_dropconnect",
+  "created_at": "2026-03-08T17:28:03",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}

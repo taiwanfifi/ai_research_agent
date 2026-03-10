@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260309_054146_compare_dropout_p_0",
+  "goal": "Compare Dropout (p=0.3) vs DropConnect (p=0.3) on a 3-layer MLP for MNIST digit classification. Hypothesis: DropConnect provides better generalization at same dropout rate. Use MLP (784→512→256→10), 3 seeds, 10 epochs, 2000 samples. Use torchvision.datasets.MNIST for data loading. Paired t-test + Cohen's d.",
+  "direction": "Compare Dropout (p=0.3) vs DropConnect (p=0.3) on a 3-layer MLP for MNIST digit classification. Hypothesis: DropConnect provides better generalization at same dropout rate. Use MLP (784→512→256→10), 3 seeds, 10 epochs, 2000 samples. Use torchvision.datasets.MNIST for data loading. Paired t-test + Cohen's d.",
+  "slug": "compare_dropout_p_0",
+  "created_at": "2026-03-09T05:41:46",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}

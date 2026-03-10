@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260308_032035_learning_rate_warmup_distilbert",
+  "goal": "比較 learning rate warmup 策略對 DistilBERT 微調 SST-2 的影響：linear warmup vs cosine annealing vs constant lr",
+  "direction": "比較 learning rate warmup 策略對 DistilBERT 微調 SST-2 的影響：linear warmup vs cosine annealing vs constant lr",
+  "slug": "learning_rate_warmup_distilbert",
+  "created_at": "2026-03-08T03:20:35",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}

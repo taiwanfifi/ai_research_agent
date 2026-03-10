@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260309_173129_compare_dropout_regularization_strategies",
+  "goal": "Compare dropout regularization strategies: standard dropout vs spatial dropout vs DropBlock on a simple CNN (3-layer) for CIFAR-10 classification. Use dropout rates 0.2 and 0.5. 3 seeds (42, 123, 456), 5 epochs, 2000 training samples. Paired t-test and Cohen's d for all comparisons.",
+  "direction": "Compare dropout regularization strategies: standard dropout vs spatial dropout vs DropBlock on a simple CNN (3-layer) for CIFAR-10 classification. Use dropout rates 0.2 and 0.5. 3 seeds (42, 123, 456), 5 epochs, 2000 training samples. Paired t-test and Cohen's d for all comparisons.",
+  "slug": "compare_dropout_regularization_strategies",
+  "created_at": "2026-03-09T17:31:29",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}

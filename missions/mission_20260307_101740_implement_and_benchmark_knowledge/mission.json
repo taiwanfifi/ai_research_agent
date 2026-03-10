@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260307_101740_implement_and_benchmark_knowledge",
+  "goal": "Implement and benchmark knowledge distillation: train a small student MLP on MNIST using soft labels from a larger teacher MLP. Compare student accuracy with and without distillation.",
+  "direction": "Implement and benchmark knowledge distillation: train a small student MLP on MNIST using soft labels from a larger teacher MLP. Compare student accuracy with and without distillation.",
+  "slug": "implement_and_benchmark_knowledge",
+  "created_at": "2026-03-07T10:17:40",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}

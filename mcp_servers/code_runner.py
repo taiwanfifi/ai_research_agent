@@ -36,6 +36,17 @@ _MEM_LIMIT_BYTES = int(os.environ.get("CODE_MEM_LIMIT", str(6 * 1024**3)))
 _active_pids: set = set()
 
 
+def _smart_truncate(text: str, max_chars: int = 5000) -> str:
+    """Truncate keeping head + tail — results are always at the end."""
+    if not text or len(text) <= max_chars:
+        return text
+    head = max_chars // 5          # 20% from start (imports, setup)
+    tail = max_chars - head - 60   # 80% from end (results, metrics)
+    return (text[:head]
+            + f"\n\n... [{len(text) - head - tail} chars truncated] ...\n\n"
+            + text[-tail:])
+
+
 # ── Workspace-scoped tool factory ────────────────────────────────────
 
 def create_workspace_tools(workspace_dir: str) -> dict:
@@ -97,7 +108,7 @@ def create_workspace_tools(workspace_dir: str) -> dict:
             stdout, stderr = proc.communicate(timeout=timeout)
             return {
                 "success": proc.returncode == 0,
-                "stdout": stdout[:5000],
+                "stdout": _smart_truncate(stdout, 5000),
                 "stderr": stderr[:3000],
                 "returncode": proc.returncode,
             }
@@ -107,8 +118,17 @@ def create_workspace_tools(workspace_dir: str) -> dict:
                 os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
             except (ProcessLookupError, PermissionError, OSError):
                 proc.kill()
-            proc.wait(timeout=5)
-            return {"success": False, "stdout": "", "stderr": f"Timeout after {timeout}s", "returncode": -1}
+            # Capture partial stdout before discarding
+            try:
+                partial_out, partial_err = proc.communicate(timeout=5)
+            except Exception:
+                partial_out, partial_err = "", ""
+            return {
+                "success": False,
+                "stdout": _smart_truncate(partial_out, 3000),
+                "stderr": f"Timeout after {timeout}s. {partial_err[:1000]}",
+                "returncode": -1,
+            }
         finally:
             _active_pids.discard(proc.pid)
             # Kill any lingering children in the process group
@@ -122,9 +142,30 @@ def create_workspace_tools(workspace_dir: str) -> dict:
                 pass
 
     def _write_file(filename: str, content: str) -> dict:
-        """Write a file to the scoped workspace."""
+        """Write a file to the scoped workspace.
+        For results/analysis JSON files: if file already exists AND an
+        analysis_summary.json exists (reviewer already ran), auto-version
+        the new file to prevent overwriting reviewed data."""
         safe_name = os.path.basename(filename)
         path = os.path.join(workspace_dir, safe_name)
+
+        # R22: Protect reviewed results from overwrite
+        if (os.path.exists(path)
+                and safe_name.endswith(".json")
+                and ("results" in safe_name or "analysis" in safe_name)
+                and safe_name != "analysis_summary.json"):
+            # Check if reviewer has already produced analysis
+            analysis_path = os.path.join(workspace_dir, "analysis_summary.json")
+            if os.path.exists(analysis_path):
+                # Auto-version: results_adam.json → results_adam_v2.json
+                base, ext = os.path.splitext(safe_name)
+                ver = 2
+                while os.path.exists(os.path.join(workspace_dir, f"{base}_v{ver}{ext}")):
+                    ver += 1
+                versioned = f"{base}_v{ver}{ext}"
+                path = os.path.join(workspace_dir, versioned)
+                safe_name = versioned
+
         with open(path, "w") as f:
             f.write(content)
         return {"success": True, "path": path, "size": len(content)}

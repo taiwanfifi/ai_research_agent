@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260304_015549_graph_neural_network_gnn",
+  "goal": "研究 Graph Neural Network (GNN) 在分子性質預測的應用，找論文後用 PyTorch 實作一個簡化版的 GCN 模型來預測分子溶解度，並跟傳統 ML 方法比較",
+  "direction": "研究 Graph Neural Network (GNN) 在分子性質預測的應用，找論文後用 PyTorch 實作一個簡化版的 GCN 模型來預測分子溶解度，並跟傳統 ML 方法比較",
+  "slug": "graph_neural_network_gnn",
+  "created_at": "2026-03-04T01:55:49",
+  "language": "zh",
+  "cross_knowledge": false,
+  "status": "finished"
+}

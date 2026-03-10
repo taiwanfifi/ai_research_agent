@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260306_150649_implement_lora_fine_tuning",
+  "goal": "Implement LoRA fine-tuning on DistilGPT-2 for SST-2 sentiment, compare rank 4 vs 16",
+  "direction": "Implement LoRA fine-tuning on DistilGPT-2 for SST-2 sentiment, compare rank 4 vs 16",
+  "slug": "implement_lora_fine_tuning",
+  "created_at": "2026-03-06T15:06:49",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}

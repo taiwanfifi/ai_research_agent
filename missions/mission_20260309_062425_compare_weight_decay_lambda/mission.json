@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260309_062425_compare_weight_decay_lambda",
+  "goal": "Compare Weight Decay (lambda=0.01) vs No Regularization on a 3-layer MLP for CIFAR-10 classification. Hypothesis: Weight decay improves generalization by penalizing large weights, reducing overfitting on small datasets. Use MLP (3072→512→256→10 with ReLU), raw PyTorch training loop, 3 seeds (42, 123, 456), 10 epochs, 2000 training samples via torchvision.datasets.CIFAR10(root='/Users/william/.cache/torch/cifar10', download=False). Measure test accuracy. Paired t-test + Cohen's d.",
+  "direction": "Compare Weight Decay (lambda=0.01) vs No Regularization on a 3-layer MLP for CIFAR-10 classification. Hypothesis: Weight decay improves generalization by penalizing large weights, reducing overfitting on small datasets. Use MLP (3072→512→256→10 with ReLU), raw PyTorch training loop, 3 seeds (42, 123, 456), 10 epochs, 2000 training samples via torchvision.datasets.CIFAR10(root='/Users/william/.cache/torch/cifar10', download=False). Measure test accuracy. Paired t-test + Cohen's d.",
+  "slug": "compare_weight_decay_lambda",
+  "created_at": "2026-03-09T06:24:25",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}

@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260307_092305_distilbert_distilgpt_2_sst",
+  "goal": "比較 DistilBERT 和 DistilGPT-2 在 SST-2 情感分析上的準確率和推理速度",
+  "direction": "比較 DistilBERT 和 DistilGPT-2 在 SST-2 情感分析上的準確率和推理速度",
+  "slug": "distilbert_distilgpt_2_sst",
+  "created_at": "2026-03-07T09:23:05",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}

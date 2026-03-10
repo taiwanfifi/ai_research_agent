@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260308_205838_compare_sgd_vs_adam",
+  "goal": "Compare SGD vs Adam vs AdamW optimizers for training a 3-layer MLP on MNIST digit classification. Use raw PyTorch (no HuggingFace). Train for 5 epochs with 5000 training samples, test on 1000 samples. Seeds 42, 123, 456. Report accuracy and convergence speed.",
+  "direction": "Compare SGD vs Adam vs AdamW optimizers for training a 3-layer MLP on MNIST digit classification. Use raw PyTorch (no HuggingFace). Train for 5 epochs with 5000 training samples, test on 1000 samples. Seeds 42, 123, 456. Report accuracy and convergence speed.",
+  "slug": "compare_sgd_vs_adam",
+  "created_at": "2026-03-08T20:58:38",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}

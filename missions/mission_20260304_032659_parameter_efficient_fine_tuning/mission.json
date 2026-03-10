@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260304_032659_parameter_efficient_fine_tuning",
+  "goal": "研究 Parameter-Efficient Fine-Tuning (PEFT) 方法——LoRA、QLoRA、Adapter 的原理與實作，用 HuggingFace PEFT 庫在一個小型語言模型 (如 GPT-2 或 DistilGPT-2) 上做 LoRA 微調，比較不同 rank (r=4,8,16) 對 loss 收斂速度與最終 perplexity 的影響，並生成 loss curve 圖表",
+  "direction": "研究 Parameter-Efficient Fine-Tuning (PEFT) 方法——LoRA、QLoRA、Adapter 的原理與實作，用 HuggingFace PEFT 庫在一個小型語言模型 (如 GPT-2 或 DistilGPT-2) 上做 LoRA 微調，比較不同 rank (r=4,8,16) 對 loss 收斂速度與最終 perplexity 的影響，並生成 loss curve 圖表",
+  "slug": "parameter_efficient_fine_tuning",
+  "created_at": "2026-03-04T03:26:59",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}

@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260304_103545_implement_and_evaluate_lora",
+  "goal": "Implement and evaluate LoRA (Low-Rank Adaptation) fine-tuning on a small language model (GPT-2 small). Compare LoRA vs full fine-tuning on a text classification task (e.g. SST-2 sentiment). Measure accuracy, training time, and parameter count. Generate comparison plots.",
+  "direction": "Implement and evaluate LoRA (Low-Rank Adaptation) fine-tuning on a small language model (GPT-2 small). Compare LoRA vs full fine-tuning on a text classification task (e.g. SST-2 sentiment). Measure accuracy, training time, and parameter count. Generate comparison plots.",
+  "slug": "implement_and_evaluate_lora",
+  "created_at": "2026-03-04T10:35:45",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}

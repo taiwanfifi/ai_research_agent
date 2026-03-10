@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260309_021523_compare_cosine_annealing_vs",
+  "goal": "Compare Cosine Annealing vs Step Decay learning rate schedules for a small CNN on CIFAR-10. Hypothesis: Cosine annealing converges to better test accuracy due to smoother loss landscape navigation. Use 3-layer CNN (Conv-BN-ReLU-Pool × 3 + FC), 3 seeds, 5 epochs, 2000 training samples. Measure final accuracy, best epoch accuracy, and training loss curves. Paired t-test.",
+  "direction": "Compare Cosine Annealing vs Step Decay learning rate schedules for a small CNN on CIFAR-10. Hypothesis: Cosine annealing converges to better test accuracy due to smoother loss landscape navigation. Use 3-layer CNN (Conv-BN-ReLU-Pool × 3 + FC), 3 seeds, 5 epochs, 2000 training samples. Measure final accuracy, best epoch accuracy, and training loss curves. Paired t-test.",
+  "slug": "compare_cosine_annealing_vs",
+  "created_at": "2026-03-09T02:15:23",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}

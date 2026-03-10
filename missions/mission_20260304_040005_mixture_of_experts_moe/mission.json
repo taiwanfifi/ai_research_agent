@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260304_040005_mixture_of_experts_moe",
+  "goal": "研究 Mixture of Experts (MoE) 在語言模型中的應用：分析 Switch Transformer 和 GShard 的設計原則，用 PyTorch 實作一個簡單的 Top-2 MoE layer，在 WikiText-2 語言建模任務上比較 MoE (4 experts, top-2 routing) 與同參數量 Dense model 的 perplexity 和推理速度。生成 routing distribution 視覺化圖和 perplexity 對比圖。",
+  "direction": "研究 Mixture of Experts (MoE) 在語言模型中的應用：分析 Switch Transformer 和 GShard 的設計原則，用 PyTorch 實作一個簡單的 Top-2 MoE layer，在 WikiText-2 語言建模任務上比較 MoE (4 experts, top-2 routing) 與同參數量 Dense model 的 perplexity 和推理速度。生成 routing distribution 視覺化圖和 perplexity 對比圖。",
+  "slug": "mixture_of_experts_moe",
+  "created_at": "2026-03-04T04:00:05",
+  "language": "zh",
+  "cross_knowledge": false,
+  "status": "finished"
+}

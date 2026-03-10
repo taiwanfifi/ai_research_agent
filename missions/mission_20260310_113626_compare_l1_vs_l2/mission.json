@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260310_113626_compare_l1_vs_l2",
+  "goal": "Compare L1 vs L2 regularization on simple CNN for CIFAR-10, 5 epochs, 2000 samples, 5 seeds (42, 123, 456, 789, 1024), lr=0.001",
+  "direction": "Compare L1 vs L2 regularization on simple CNN for CIFAR-10, 5 epochs, 2000 samples, 5 seeds (42, 123, 456, 789, 1024), lr=0.001",
+  "slug": "compare_l1_vs_l2",
+  "created_at": "2026-03-10T11:36:26",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}

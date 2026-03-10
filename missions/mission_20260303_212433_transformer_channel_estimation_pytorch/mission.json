@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260303_212433_transformer_channel_estimation_pytorch",
+  "goal": "研究 Transformer 在 channel estimation 的應用，找論文後用 PyTorch 實作簡化版並跟 LS estimator 比較 MSE",
+  "direction": "研究 Transformer 在 channel estimation 的應用，找論文後用 PyTorch 實作簡化版並跟 LS estimator 比較 MSE",
+  "slug": "transformer_channel_estimation_pytorch",
+  "created_at": "2026-03-03T21:24:33",
+  "language": "zh",
+  "cross_knowledge": false,
+  "status": "finished"
+}

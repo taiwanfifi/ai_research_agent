@@ -1,0 +1,10 @@
+{
+  "mission_id": "mission_20260305_034509_lora_distilgpt_2_rank",
+  "goal": "用 LoRA 微調 DistilGPT-2 並比較不同 rank 的效果",
+  "direction": "用 LoRA 微調 DistilGPT-2 並比較不同 rank 的效果",
+  "slug": "lora_distilgpt_2_rank",
+  "created_at": "2026-03-05T03:45:09",
+  "language": "en",
+  "cross_knowledge": false,
+  "status": "finished"
+}
