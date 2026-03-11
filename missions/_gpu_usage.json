@@ -1465,5 +1465,167 @@
     ],
     "data_transferred_mb": 0.0,
     "status": "completed"
+  },
+  {
+    "session_id": "gpu_1773210561",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32670396",
+    "gpu_model": "RTX 3090",
+    "gpu_ram_gb": 24576,
+    "cost_per_hour": 0.10898148148148148,
+    "started_at": "2026-03-11T14:29:21",
+    "stopped_at": "2026-03-11T14:37:23",
+    "total_hours": 0.134,
+    "total_cost": 0.0146,
+    "tasks_run": [
+      {
+        "task": "quick_gpu_run",
+        "duration_s": 482,
+        "success": true
+      }
+    ],
+    "data_transferred_mb": 0.0,
+    "status": "completed"
+  },
+  {
+    "session_id": "gpu_1773211120",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32670725",
+    "gpu_model": "RTX 3090",
+    "gpu_ram_gb": 24576,
+    "cost_per_hour": 0.1213888888888889,
+    "started_at": "2026-03-11T14:38:40",
+    "stopped_at": "2026-03-11T14:45:41",
+    "total_hours": 0.1171,
+    "total_cost": 0.0142,
+    "tasks_run": [],
+    "data_transferred_mb": 0.0,
+    "status": "error"
+  },
+  {
+    "session_id": "gpu_1773211766",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32670997",
+    "gpu_model": "RTX 5060 Ti",
+    "gpu_ram_gb": 16311,
+    "cost_per_hour": 0.06944444444444445,
+    "started_at": "2026-03-11T14:49:26",
+    "stopped_at": "2026-03-11T14:56:33",
+    "total_hours": 0.1186,
+    "total_cost": 0.0082,
+    "tasks_run": [],
+    "data_transferred_mb": 0.0,
+    "status": "error"
+  },
+  {
+    "session_id": "gpu_1773212262",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32671165",
+    "gpu_model": "RTX 5060 Ti",
+    "gpu_ram_gb": 16311,
+    "cost_per_hour": 0.061388888888888896,
+    "started_at": "2026-03-11T14:57:42",
+    "stopped_at": "2026-03-11T15:02:29",
+    "total_hours": 0.0799,
+    "total_cost": 0.0049,
+    "tasks_run": [],
+    "data_transferred_mb": 0.0,
+    "status": "error"
+  },
+  {
+    "session_id": "gpu_1773213225",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32671585",
+    "gpu_model": "RTX 4060 Ti",
+    "gpu_ram_gb": 16380,
+    "cost_per_hour": 0.06805555555555555,
+    "started_at": "2026-03-11T15:13:45",
+    "stopped_at": "2026-03-11T15:22:28",
+    "total_hours": 0.1455,
+    "total_cost": 0.0099,
+    "tasks_run": [
+      {
+        "task": "quick_gpu_run",
+        "duration_s": 524,
+        "success": true
+      }
+    ],
+    "data_transferred_mb": 0.0,
+    "status": "completed"
+  },
+  {
+    "session_id": "gpu_1773213789",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32671883",
+    "gpu_model": "RTX 5060 Ti",
+    "gpu_ram_gb": 16311,
+    "cost_per_hour": 0.06469444444444444,
+    "started_at": "2026-03-11T15:23:09",
+    "stopped_at": "2026-03-11T15:26:33",
+    "total_hours": 0.0568,
+    "total_cost": 0.0037,
+    "tasks_run": [],
+    "data_transferred_mb": 0.0,
+    "status": "error"
+  },
+  {
+    "session_id": "gpu_1773214198",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32672033",
+    "gpu_model": "RTX 5060 Ti",
+    "gpu_ram_gb": 16311,
+    "cost_per_hour": 0.061388888888888896,
+    "started_at": "2026-03-11T15:29:58",
+    "stopped_at": "2026-03-11T15:33:50",
+    "total_hours": 0.0647,
+    "total_cost": 0.004,
+    "tasks_run": [],
+    "data_transferred_mb": 0.0,
+    "status": "error"
+  },
+  {
+    "session_id": "gpu_1773215091",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32672454",
+    "gpu_model": "RTX 3090",
+    "gpu_ram_gb": 24576,
+    "cost_per_hour": 0.07738888888888888,
+    "started_at": "2026-03-11T15:44:51",
+    "stopped_at": "2026-03-11T15:51:56",
+    "total_hours": 0.1182,
+    "total_cost": 0.0091,
+    "tasks_run": [],
+    "data_transferred_mb": 0.0,
+    "status": "error"
+  },
+  {
+    "session_id": "gpu_1773215556",
+    "mission_id": "unknown",
+    "platform": "vastai",
+    "instance_id": "32672670",
+    "gpu_model": "RTX 3090",
+    "gpu_ram_gb": 24576,
+    "cost_per_hour": 0.1213888888888889,
+    "started_at": "2026-03-11T15:52:36",
+    "stopped_at": "2026-03-11T15:54:07",
+    "total_hours": 0.0255,
+    "total_cost": 0.0031,
+    "tasks_run": [
+      {
+        "task": "quick_gpu_run",
+        "duration_s": 92,
+        "success": true
+      }
+    ],
+    "data_transferred_mb": 0.0,
+    "status": "completed"
   }
 ]

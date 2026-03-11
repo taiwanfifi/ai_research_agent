@@ -1,6 +1,20 @@
 {
   "keywords": [
-    "optimization"
+    "optimization",
+    "optimizer",
+    "sgd",
+    "adam",
+    "adamw",
+    "rmsprop",
+    "learning rate",
+    "lr",
+    "momentum",
+    "convergence",
+    "gradient",
+    "warmup",
+    "schedule",
+    "cosine",
+    "step decay"
   ],
   "principles": [
     {

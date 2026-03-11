@@ -1,6 +1,21 @@
 {
   "keywords": [
-    "architecture"
+    "architecture",
+    "resnet",
+    "transformer",
+    "attention",
+    "convolution",
+    "pooling",
+    "skip connection",
+    "residual",
+    "lora",
+    "finetune",
+    "fine-tune",
+    "pretrain",
+    "embedding",
+    "gnn",
+    "rnn",
+    "lstm"
   ],
   "principles": [],
   "experiments": [],

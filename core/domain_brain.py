@@ -474,7 +474,8 @@ Respond with JSON:
       "explanation": "why this concept explains the underlying principles",
       "supporting_evidence": ["principle 1 text", "principle 2 text"],
       "predictions": ["what this concept predicts for untested scenarios"],
-      "scope": "when does this concept apply vs not apply"
+      "scope": "when does this concept apply vs not apply",
+      "novelty": "empirical|textbook"
     }}
   ]
 }}
@@ -483,7 +484,13 @@ Rules:
 - Only create concepts with 2+ supporting principles
 - Anchor definition must be specific and falsifiable
 - If no patterns emerge, return {{"concepts": []}}
-- Do NOT duplicate existing concepts"""
+- Do NOT duplicate existing concepts
+- NOVELTY FILTER: Prefer concepts that contain SPECIFIC quantitative findings
+  from our experiments (e.g. "Adam outperforms SGD by 7-9% on n=2000")
+  over generic ML textbook knowledge (e.g. "Adam converges faster than SGD").
+  Mark each concept's "novelty" field as "empirical" (from our data) or
+  "textbook" (common knowledge). Only "empirical" concepts are valuable.
+- Each prediction must be SPECIFIC and TESTABLE with a concrete experiment"""
 
         try:
             response = self.llm.chat([
