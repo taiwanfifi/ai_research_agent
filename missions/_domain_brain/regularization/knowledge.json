@@ -1,11 +1,75 @@
 {
   "keywords": [
-    "regularization"
+    "regularization",
+    "dropout",
+    "weight decay",
+    "l1",
+    "l2",
+    "augmentation",
+    "early stopping",
+    "overfitting",
+    "generalization",
+    "batch size",
+    "batchnorm",
+    "batch norm",
+    "layernorm",
+    "layer norm",
+    "groupnorm",
+    "normalization"
   ],
   "principles": [
     {
       "principle": "Adaptive learning rate optimizers (Adam) significantly outperform fixed learning rate methods (SGD) under constrained training regimes (limited samples, few epochs) because they can automatically adjust per-parameter learning rates based on gradient history and momentum, enabling faster initial convergence.",
-      "evidence": "Adam achieved 35.65% vs SGD 25.0% after only 5 epochs on 2000 samples. Adam's epoch progression (28.35→35.65) shows continuous improvement while SGD plateaus earlier (16.75→25.0). The massive effect size (d=6.52) indicates Adam's mechanism provides substantial advantage in this low-resource scenario.",
+      "evidence": [
+        "G",
+        "p",
+        ")",
+        "g",
+        "t",
+        "a",
+        "1",
+        "=",
+        "v",
+        "9",
+        "c",
+        "w",
+        "o",
+        "m",
+        "(",
+        "T",
+        "S",
+        "'",
+        "A",
+        ",",
+        "f",
+        "8",
+        "6",
+        "r",
+        "n",
+        "5",
+        "%",
+        "x",
+        "2",
+        "0",
+        "l",
+        "3",
+        "d",
+        "s",
+        "7",
+        "4",
+        "z",
+        "b",
+        "y",
+        ".",
+        "e",
+        "u",
+        "D",
+        "-",
+        "h",
+        "→",
+        " ",
+        "i"
+      ],
       "confidence": 0.95,
       "added": "2026-03-11T07:06:26.801726"
     },
@@ -20,12 +84,6 @@
       "evidence": "Cohen's d of 6.52 is far beyond the 'large' threshold (0.8), suggesting the difference between optimizers is orders of magnitude larger than within-method variance. This implies optimizer selection may matter more than hyperparameter tuning in low-data, short-training scenarios.",
       "confidence": 0.9,
       "added": "2026-03-11T07:06:26.801726"
-    },
-    {
-      "principle": "Adaptive learning rate optimizers (Adam) significantly outperform vanilla momentum SGD on small datasets with limited training epochs due to their per-parameter learning rate adaptation based on gradient first and second moments.",
-      "evidence": "Adam achieved 33.4% higher accuracy than SGD (37.55% vs 28.15%), with an extremely large effect size (d=8.56). This occurs because Adam's adaptive rates help prevent overshooting in regions of high curvature or sparse gradients, which are more problematic with limited data.",
-      "confidence": 0.95,
-      "added": "2026-03-11T07:06:42.001204"
     },
     {
       "principle": "Decoupled weight decay (AdamW) shows no significant improvement over Adam in short-training, small-data regimes because the regularization effect requires sufficient training duration to manifest.",
@@ -74,12 +132,6 @@
       "evidence": "5 epochs on 2000 samples provides minimal exposure to the distinct weight distributions each regularization type produces. L1's sparsity-promoting effect requires iterative weight thresholding over many updates to manifest, and L2's weight shrinkage accumulates gradually—both need extended training to show divergence.",
       "confidence": 0.75,
       "added": "2026-03-11T07:07:08.770496"
-    },
-    {
-      "principle": "Adaptive learning rate optimizers (Adam) significantly outperform vanilla gradient descent (SGD) when training data is limited due to more stable gradient estimates from momentum-based normalization",
-      "evidence": "At n=500, Adam achieves 33.8% vs SGD's 10.6% (d=9.7). SGD's gradients are highly sensitive to batch composition, causing erratic updates, while Adam's adaptive moment estimation smooths gradient variance.",
-      "confidence": 0.95,
-      "added": "2026-03-11T07:07:28.883680"
     },
     {
       "principle": "SGD requires a critical minimum sample size before learning becomes stable; below this threshold, training is essentially random",
