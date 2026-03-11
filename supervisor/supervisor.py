@@ -846,6 +846,18 @@ class Supervisor:
                     except Exception as e:
                         print(f"  [Brain] Concept mining failed: {e}")
 
+                # Concept Prediction Verification: check predictions against new results
+                if self.domain_brain and analysis:
+                    try:
+                        flat_analysis = analysis
+                        if isinstance(analysis, dict) and len(analysis) == 1:
+                            flat_analysis = list(analysis.values())[0]
+                        verifications = self.domain_brain.verify_concepts(
+                            self.goal, flat_analysis
+                        )
+                    except Exception as e:
+                        print(f"  [Brain] Concept verification failed: {e}")
+
                 return report
 
             elif action_type == "report":
@@ -1046,6 +1058,12 @@ class Supervisor:
                 n_concepts = self.domain_brain.consolidate()
                 if n_concepts:
                     print(f"  [Brain] Concept consolidation: {n_concepts} new concepts")
+                # Verify concept predictions against new results
+                if analysis:
+                    flat_analysis = analysis
+                    if isinstance(analysis, dict) and len(analysis) == 1:
+                        flat_analysis = list(analysis.values())[0]
+                    self.domain_brain.verify_concepts(self.goal, flat_analysis)
             except Exception as e:
                 print(f"  [Brain] Post-mission learning failed: {e}")
 
@@ -2477,6 +2495,14 @@ Rules:
                 brain_section = f"\n## Domain Brain (accumulated research knowledge)\n{brain_ctx}"
                 evolution_guidance = (evolution_guidance + brain_section) if evolution_guidance else brain_section
                 print(f"  [Brain] Injecting domain knowledge into planner")
+            # Inject testable predictions from concepts
+            try:
+                pred_ctx = self.domain_brain.get_concept_predictions_for_goal(self.direction)
+                if pred_ctx:
+                    evolution_guidance = (evolution_guidance + "\n" + pred_ctx) if evolution_guidance else pred_ctx
+                    print(f"  [Brain] Injecting concept predictions into planner")
+            except Exception:
+                pass
         quality_rules = get_quality_rules(self.evolution_store, self.direction)
 
         # Inject validator notes (one-time, into planner only, not into direction)

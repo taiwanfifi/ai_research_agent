@@ -566,6 +566,187 @@ Rules:
             "regions_needing_consolidation": regions_without_concepts,
         }
 
+    # ── Concept Prediction Verification ─────────────────────────
+
+    def verify_concepts(self, goal: str, analysis_summary: dict) -> list[dict]:
+        """Verify concept predictions against new mission results.
+
+        After each mission, check if any concept's predictions match or
+        conflict with the new data. Update concept credibility accordingly.
+
+        Returns list of verification results for logging.
+        """
+        if not self.llm or not analysis_summary:
+            return []
+
+        regions = self._route(goal, max_regions=3)
+        if not regions:
+            return []
+
+        verifications = []
+
+        for region_name in regions:
+            data = self._load_region(region_name)
+            if not data:
+                continue
+
+            concepts = data.get("concepts", [])
+            if not concepts:
+                continue
+
+            # Find concepts with predictions
+            concepts_with_predictions = [
+                (i, c) for i, c in enumerate(concepts)
+                if c.get("predictions") and isinstance(c["predictions"], list)
+                and len(c["predictions"]) > 0
+            ]
+            if not concepts_with_predictions:
+                continue
+
+            # Ask LLM to check predictions against new results
+            results = self._check_predictions(
+                concepts_with_predictions, analysis_summary, goal
+            )
+
+            # Update concept credibility
+            for result in results:
+                idx = result.get("concept_index")
+                if idx is None or idx >= len(concepts):
+                    continue
+
+                concept = concepts[idx]
+                old_cred = concept.get("credibility", 0.5)
+
+                if result["verdict"] == "confirmed":
+                    concept["credibility"] = min(1.0, old_cred + 0.15)
+                    concept.setdefault("confirmed_by", []).append(goal[:80])
+                elif result["verdict"] == "refuted":
+                    concept["credibility"] = max(0.0, old_cred - 0.2)
+                    concept.setdefault("refuted_by", []).append(goal[:80])
+                    # If credibility drops below 0.2, mark for revision
+                    if concept["credibility"] < 0.2:
+                        concept["needs_revision"] = True
+                # "inconclusive" → no change
+
+                concept["last_verified"] = datetime.now().isoformat()
+                result["region"] = region_name
+                result["concept_name"] = concept.get("concept", "?")
+                result["new_credibility"] = concept.get("credibility", 0.5)
+                verifications.append(result)
+
+            # Save updated concepts
+            if results:
+                self._save_region(region_name, data)
+
+        if verifications:
+            confirmed = sum(1 for v in verifications if v["verdict"] == "confirmed")
+            refuted = sum(1 for v in verifications if v["verdict"] == "refuted")
+            print(f"  [Brain] Concept verification: {confirmed} confirmed, "
+                  f"{refuted} refuted, "
+                  f"{len(verifications) - confirmed - refuted} inconclusive")
+
+        return verifications
+
+    def _check_predictions(self, concepts_with_predictions: list,
+                           analysis: dict, goal: str) -> list[dict]:
+        """Use LLM to check concept predictions against new results."""
+        analysis_str = json.dumps(analysis, indent=2, default=str)[:3000]
+
+        concepts_str = ""
+        for idx, c in concepts_with_predictions:
+            preds = c.get("predictions", [])
+            preds_str = "; ".join(preds[:3]) if isinstance(preds, list) else str(preds)
+            concepts_str += (
+                f"\n[{idx}] {c.get('concept', '?')}: "
+                f"predictions=[{preds_str}] "
+                f"(anchor: {c.get('anchor_definition', '')[:100]})"
+            )
+
+        prompt = f"""Check if any concept predictions are confirmed or refuted by this new experiment.
+
+## New Experiment
+Goal: {goal}
+Results:
+{analysis_str}
+
+## Concepts with predictions
+{concepts_str}
+
+For each concept, determine if the new data CONFIRMS, REFUTES, or is INCONCLUSIVE for its predictions.
+Only mark "confirmed" if the data directly supports a prediction.
+Only mark "refuted" if the data directly contradicts a prediction.
+
+Respond with JSON:
+{{
+  "results": [
+    {{
+      "concept_index": 0,
+      "verdict": "confirmed|refuted|inconclusive",
+      "evidence": "brief explanation of why"
+    }}
+  ]
+}}
+
+Rules:
+- Only include concepts where the new data is RELEVANT to their predictions
+- Skip concepts where the experiment doesn't test anything related
+- Be conservative: require clear evidence, not vague overlap"""
+
+        try:
+            response = self.llm.chat([
+                {"role": "system", "content": (
+                    "You verify research concept predictions against new data. "
+                    "Be strict: only confirm/refute with clear evidence. JSON only."
+                )},
+                {"role": "user", "content": prompt},
+            ])
+            raw = strip_think(response["choices"][0]["message"]["content"])
+            json_match = re.search(r'\{[\s\S]*\}', raw)
+            if not json_match:
+                return []
+            data = json.loads(json_match.group())
+            return data.get("results", [])
+        except Exception as e:
+            print(f"  [Brain] Prediction check failed: {e}")
+            return []
+
+    def get_concept_predictions_for_goal(self, goal: str) -> str:
+        """Get testable predictions from concepts relevant to a new mission.
+
+        Injected into planner so it can design experiments that also test
+        existing concept predictions (closing the loop).
+        """
+        regions = self._route(goal, max_regions=3)
+        if not regions:
+            return ""
+
+        predictions = []
+        for region_name in regions:
+            data = self._load_region(region_name)
+            if not data:
+                continue
+            for c in data.get("concepts", []):
+                preds = c.get("predictions", [])
+                if not preds:
+                    continue
+                cred = c.get("credibility", 0.5)
+                name = c.get("concept", "?")
+                for p in (preds[:2] if isinstance(preds, list) else [str(preds)]):
+                    predictions.append(
+                        f"- [{name}] (credibility={cred:.1f}): {p}"
+                    )
+
+        if not predictions:
+            return ""
+
+        return (
+            "## Concept Predictions to Verify\n"
+            "These predictions come from established concepts. "
+            "If your experiment can test any of them, note whether results "
+            "confirm or refute the prediction.\n"
+            + "\n".join(predictions[:8])
+        )
+
     # ── Bootstrap: seed from existing evolution store ───────────
 
     def bootstrap_from_evolution(self, evolution_store):
