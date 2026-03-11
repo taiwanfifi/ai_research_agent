@@ -100,7 +100,8 @@ class Supervisor:
                  mission_ctx=None, mission_manager=None,
                  code_store=None, evolution_store=None,
                  pipeline_mode: str = "classic",
-                 validation_mode: str = "llm_full"):
+                 validation_mode: str = "llm_full",
+                 enable_critic: bool = True):
         self.llm = llm
         self.registry = registry
         self.event_bus = event_bus
@@ -110,6 +111,7 @@ class Supervisor:
         self.mission_manager = mission_manager
         self.pipeline_mode = pipeline_mode  # "classic" or "structured"
         self.validation_mode = validation_mode  # "keyword", "llm_full", "llm_critical", "exec_first", "hybrid"
+        self.enable_critic = enable_critic  # A/B toggle for critic ablation
 
         language = mission_ctx.language if mission_ctx else "en"
         workspace_dir = mission_ctx.workspace_dir if mission_ctx else None
@@ -418,7 +420,7 @@ class Supervisor:
                     print(f"  [Validator] [{iss.severity}] {iss.description}")
 
         # ── Research Critic: adversarial debate (Opus v2) ──
-        if not self.literature_only:
+        if not self.literature_only and self.enable_critic:
             domain_context = ""
             if self.domain_brain:
                 domain_context = self.domain_brain.get_relevant_context(self.direction)

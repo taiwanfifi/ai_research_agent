@@ -99,7 +99,8 @@ def _make_registry() -> ToolRegistry:
 
 def build_system(ctx: MissionContext, manager: MissionManager,
                   pipeline_mode: str = "classic",
-                  validation_mode: str = "llm_full") -> dict:
+                  validation_mode: str = "llm_full",
+                  enable_critic: bool = False) -> dict:
     """Initialize all system components scoped to a mission context."""
     _check_system_resources()
 
@@ -138,6 +139,7 @@ def build_system(ctx: MissionContext, manager: MissionManager,
         evolution_store=evolution_store,
         pipeline_mode=pipeline_mode,
         validation_mode=validation_mode,
+        enable_critic=enable_critic,
     )
 
     return {
@@ -387,6 +389,10 @@ Examples:
                         help="Literature-only mode: deep search + hypothesis generation, no experiments")
     parser.add_argument("--llm", choices=["minimax", "deepseek"], default="minimax",
                         help="LLM provider (default: minimax)")
+    parser.add_argument("--critic", action="store_true",
+                        help="Enable Research Critic (off by default — A/B test showed net-negative impact)")
+    parser.add_argument("--no-critic", action="store_true",
+                        help="(deprecated, critic is now off by default)")
 
     args = parser.parse_args()
 
@@ -496,8 +502,10 @@ Examples:
 
     pipeline_mode = getattr(args, 'pipeline_mode', 'structured') or 'structured'
     validation_mode = getattr(args, 'validation_mode', 'llm_full') or 'llm_full'
+    enable_critic = getattr(args, 'critic', False) and not getattr(args, 'no_critic', False)
     system = build_system(ctx, manager, pipeline_mode=pipeline_mode,
-                          validation_mode=validation_mode)
+                          validation_mode=validation_mode,
+                          enable_critic=enable_critic)
 
     # Literature-only mode: override planner to only generate explorer tasks
     if getattr(args, 'literature', False):

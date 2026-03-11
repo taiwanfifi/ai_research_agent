@@ -4,30 +4,6 @@
   ],
   "principles": [
     {
-      "principle": "Spatial dropout and DropBlock require spatial structure in feature maps to exhibit their block-wise dropout mechanism advantage over standard dropout",
-      "evidence": "With identical results across all types on a simple 3-layer CNN, the model architecture may not have sufficient spatial feature complexity for spatial dropout's channel-dropping or DropBlock's block-dropping to demonstrate their theoretical advantages",
-      "confidence": 0.6,
-      "added": "2026-03-11T07:06:01.746794"
-    },
-    {
-      "principle": "Implementation robustness is prerequisite for experimental validity; infrastructure failures prevent scientific inference entirely",
-      "evidence": "3 out of 4 conditions failed due to data loading errors, making the planned statistical comparison impossible despite proper experimental design",
-      "confidence": 0.95,
-      "added": "2026-03-11T07:06:12.491793"
-    },
-    {
-      "principle": "CIFAR-10 classification with 2000 samples and 1 epoch yields ~17% accuracy, indicating the model captures some signal but severely underfits (random chance = 10%)",
-      "evidence": "Test accuracy 17.15% ± 1.90% with pre-activation BN, batch size 32; training loss plateaued around 2.3 (cross-entropy for 10-class = 2.30 at random)",
-      "confidence": 0.9,
-      "added": "2026-03-11T07:06:12.491793"
-    },
-    {
-      "principle": "Batch normalization requires sufficient training iterations to show statistical advantages; short training runs may not reveal placement effects",
-      "evidence": "Only 1 epoch completed instead of planned 5, limiting ability to detect subtle architectural differences between pre and post-activation BN",
-      "confidence": 0.7,
-      "added": "2026-03-11T07:06:12.491793"
-    },
-    {
       "principle": "Adaptive learning rate optimizers (Adam) significantly outperform fixed learning rate methods (SGD) under constrained training regimes (limited samples, few epochs) because they can automatically adjust per-parameter learning rates based on gradient history and momentum, enabling faster initial convergence.",
       "evidence": "Adam achieved 35.65% vs SGD 25.0% after only 5 epochs on 2000 samples. Adam's epoch progression (28.35→35.65) shows continuous improvement while SGD plateaus earlier (16.75→25.0). The massive effect size (d=6.52) indicates Adam's mechanism provides substantial advantage in this low-resource scenario.",
       "confidence": 0.95,
@@ -122,23 +98,33 @@
       "evidence": "SGD std: 4.47 (n=100), 2.3 (n=500), 4.18 (n=1000), 0.99 (n=2000), 0.82 (n=5000). The variance is highest at intermediate sizes where learning has started but is unstable.",
       "confidence": 0.7,
       "added": "2026-03-11T07:07:28.883680"
+    },
+    {
+      "principle": "BatchNorm's implicit regularization from batch statistics noise is especially beneficial on small datasets",
+      "evidence": "BatchNorm achieves 7.5% higher test accuracy and significantly lower training loss (1.37 vs 1.83) on only 2000 training samples. The higher loss variance (0.038 vs 0.024, p=0.005) indicates stochasticity from computing normalization over small batches acts as implicit regularization, preventing overfitting on the limited data.",
+      "confidence": 0.85,
+      "added": "2026-03-11T13:28:09.905672"
+    },
+    {
+      "principle": "LayerNorm's batch-independence sacrifices a valuable regularization mechanism without providing compensating benefits in small-data regimes",
+      "evidence": "LayerNorm normalizes across features rather than batch dimension, making it immune to batch composition effects. However, this eliminates the noise injection that helps BatchNorm generalize. LayerNorm's significantly higher final loss (1.83 vs 1.37, p<0.001) and lower accuracy suggest it struggles to fit small datasets without this implicit regularization.",
+      "confidence": 0.8,
+      "added": "2026-03-11T13:28:09.905672"
+    },
+    {
+      "principle": "Normalization method interacts strongly with dataset size — batch-dependent methods leverage statistical noise as regularization when data is scarce",
+      "evidence": "With only 2000 CIFAR-10 samples (4% of full dataset), the accuracy difference (7.5 percentage points) is large but not statistically significant (p=0.069) due to high variance across seeds. This suggests the effect depends on sample scarcity; with full CIFAR-10, the difference would likely shrink.",
+      "confidence": 0.75,
+      "added": "2026-03-11T13:28:09.905672"
+    },
+    {
+      "principle": "Small batch sizes amplify BatchNorm's noise-driven regularization at the cost of training instability",
+      "evidence": "BatchNorm's loss variance is 58% higher than LayerNorm (0.038 vs 0.024). With batch_size=32, batch statistics are noisy, creating variance in the normalization signal. This noise is a double-edged sword: beneficial for regularization but detrimental to training stability.",
+      "confidence": 0.7,
+      "added": "2026-03-11T13:28:09.905672"
     }
   ],
   "experiments": [
-    {
-      "description": "Pre-activation BN (before ReLU) with batch_size=32 on 4-layer CNN / CIFAR-10 (2000 samples, ~1 epoch)",
-      "result": "Test accuracy 17.15% ± 1.90%, training loss 2.297 ± 0.022. Model is learning but severely underfitting.",
-      "p_value": null,
-      "effect_size": null,
-      "added": "2026-03-11T07:06:12.491793"
-    },
-    {
-      "description": "Post-activation BN (after ReLU) with batch_size=32",
-      "result": "Not completed - data loading error",
-      "p_value": null,
-      "effect_size": null,
-      "added": "2026-03-11T07:06:12.491793"
-    },
     {
       "description": "Pre-activation BN with batch_size=128",
       "result": "Not completed - data loading error",
@@ -229,19 +215,33 @@
       "p_value": "not computed (data truncated)",
       "effect_size": "not computed",
       "added": "2026-03-11T07:07:28.883680"
+    },
+    {
+      "description": "BatchNorm vs LayerNorm on SimpleCNN for CIFAR-10 classification",
+      "result": "BatchNorm significantly outperforms LayerNorm in final training loss (1.37 vs 1.83, p<0.001) and training stability (loss variance 0.038 vs 0.024, p=0.005). Test accuracy difference is 7.5 percentage points but not statistically significant (p=0.069) with 5 seeds.",
+      "p_value": "0.069 (accuracy), 0.005 (loss variance), <0.001 (final loss)",
+      "effect_size": "Cohen's d = 1.10 (accuracy), 2.53 (loss variance), -25.35 (final loss)",
+      "added": "2026-03-11T13:28:09.905672"
+    },
+    {
+      "description": "5-epoch training with 2000 samples, batch_size=32, Adam lr=0.001, 5 seeds",
+      "result": "Both methods show high inter-seed variance in test accuracy (std ~3.2-3.6%), indicating results are sensitive to initialization. The 5-epoch duration may be insufficient for LayerNorm to reach optimal performance.",
+      "p_value": null,
+      "effect_size": null,
+      "added": "2026-03-11T13:28:09.905672"
     }
   ],
   "open_questions": [
-    "At what epoch count (e.g., 10, 20, 50) does the L1 vs L2 differentiation emerge for this architecture?",
-    "Would larger sample sizes (full CIFAR-10, 50k samples) reveal regularization differences?",
-    "Does the choice of regularization λ (lambda) magnitude affect the outcome when training is extended?",
-    "Would more complex architectures (deeper networks, ResNet) show L1/L2 divergence sooner due to greater overfitting risk?",
-    "Does the sparsity-inducing property of L1 provide computational efficiency benefits even without accuracy gains?",
     "What is the exact sample size threshold where SGD transitions from random to meaningful learning?",
     "Would learning rate scheduling for SGD close the gap with Adam at smaller dataset sizes?",
     "Does the advantage of Adam over SGD persist at larger epoch counts (100+ epochs), or does SGD eventually catch up?",
     "Would SGD with momentum achieve similar performance to Adam at smaller dataset sizes, isolating the effect of adaptive learning rates vs. momentum?",
-    "How do these results generalize to other architectures (ResNet, VGG) or datasets (CIFAR-100, ImageNet subset)?"
+    "How do these results generalize to other architectures (ResNet, VGG) or datasets (CIFAR-100, ImageNet subset)?",
+    "Would extending training to 15-20 epochs close the accuracy gap as LayerNorm catches up in optimization?",
+    "Does adding explicit regularization (dropout) to LayerNorm compensate for its missing implicit regularization?",
+    "Would increasing batch size to 128 reduce BatchNorm's noise and diminish its advantage?",
+    "Is the accuracy difference truly non-significant (p=0.069) or does it become significant with more seeds (10+)?",
+    "How does this compare on larger datasets — does BatchNorm's advantage shrink or disappear with 10000+ samples?"
   ],
   "created": "2026-03-10T17:58:55.596186",
   "concepts": [
@@ -319,7 +319,64 @@
       "scope": "Applies when comparing optimization methods (normalization, optimizers) on classification tasks. Less applicable to regression where loss and metrics are more aligned.",
       "created": "2026-03-11T07:08:39.568281",
       "version": 1
+    },
+    {
+      "concept": "Dataset Size as Primary Effect Modifier for Method Comparison",
+      "anchor_definition": "The relative performance ranking between regularization/optimization methods is not intrinsic but dynamically shifts based on dataset size, with method advantages typically diminishing as sample size increases, though the rate and asymptote of this convergence varies by method pair.",
+      "explanation": "Multiple principles and experiments demonstrate that Adam's advantage over SGD is largest at small n=500 (23.2pp gap) and progressively narrows at n=1000 (8.1pp), n=2000 (9.5pp), and n=5000 (7.5pp). Similarly, BatchNorm's implicit regularization provides distinct advantages on small datasets while LayerNorm's batch-independence becomes a liability. This pattern suggests that sample size doesn't just affect statistical power—it fundamentally changes which inductive biases are beneficial vs harmful.",
+      "supporting_evidence": [
+        "Adam significantly outperforms SGD when training data is limited due to more stable gradient estimates from momentum-based normalization (confidence=0.95)",
+        "The performance gap between optimizers narrows as dataset size increases, but Adam maintains a consistent advantage (confidence=0.85)",
+        "BatchNorm's implicit regularization from batch statistics noise is especially beneficial on small datasets (confidence=0.85)",
+        "LayerNorm's batch-independence sacrifices a valuable regularization mechanism without providing compensating benefits in small-data regimes (confidence=0.8)",
+        "Normalization method interacts strongly with dataset size — batch-dependent methods leverage statistical noise as regularization when data is scarce (confidence=0.75)"
+      ],
+      "predictions": [
+        "On very large datasets (n>100k), optimizer choice should have minimal impact on final accuracy",
+        "LayerNorm may outperform BatchNorm on certain large-scale architectures where batch statistics become unreliable",
+        "Novel normalization techniques should be evaluated across a range of dataset sizes, not just small-data regimes"
+      ],
+      "scope": "Applies to comparisons between optimization methods (Adam vs SGD) and normalization methods (BatchNorm vs LayerNorm). Does not necessarily apply to architecture comparisons (CNN vs Transformer) where dataset size interactions may follow different patterns.",
+      "created": "2026-03-11T13:29:03.190594",
+      "version": 1
+    },
+    {
+      "concept": "Training Duration as Confounding Variable in Method Comparisons",
+      "anchor_definition": "In comparative experiments between regularization methods, insufficient training duration produces false negative results by preventing methods with different convergence rates from reaching their characteristic performance plateaus, even when underlying differences are substantial.",
+      "explanation": "The experiments show that 5-epoch training with 2000 samples on MNIST found no accuracy difference between BatchNorm and LayerNorm (92.1% vs 92.2%, p=0.757), yet BatchNorm showed dramatically lower loss (0.060 vs 0.253). This indicates the methods had not yet differentiated. Short training regimes also fail to reveal SGD vs Adam differences—while SGD eventually shows 9.5pp gap at 20 epochs, earlier epochs may show no advantage. This explains why multiple principles cite statistical power requirements for training duration.",
+      "supporting_evidence": [
+        "Statistical power in normalization comparison experiments requires sufficient training duration to reveal true differences; short training regimes may mask architecture-dependent effects (confidence=0.7)",
+        "Short training durations lack statistical power to detect regularization method differences (confidence=0.75)",
+        "Loss values can diverge substantially while accuracy remains stable, suggesting normalization methods affect optimization dynamics differently without altering final decision boundaries (confidence=0.75)",
+        "The 5-epoch duration may be insufficient for LayerNorm to reach optimal performance (from experiments)"
+      ],
+      "predictions": [
+        "Method comparisons at early checkpoints may not reflect final performance rankings",
+        "Loss-based metrics may be more sensitive than accuracy for detecting method differences during training",
+        "Convergence rate analysis should accompany final performance comparisons"
+      ],
+      "scope": "Applies to any comparative experiment between regularization, normalization, or optimization methods. Most critical when methods have different learning dynamics (e.g., adaptive vs non-adaptive optimizers, batch-dependent vs batch-independent normalization).",
+      "created": "2026-03-11T13:29:03.190604",
+      "version": 1
+    },
+    {
+      "concept": "Implicit Regularization Mechanism Efficacy Depends on Overfitting Risk",
+      "anchor_definition": "Regularization techniques (explicit like L1/L2, or implicit like batch statistics noise) only demonstrate measurable benefits when the model-data configuration is at risk of overfitting; in underfitting regimes where train accuracy is near random, there is no memorization to prevent and thus no regularization target.",
+      "explanation": "The L1 vs L2 experiment showed nearly identical training accuracy (~48%) confirming underfitting, and validation accuracy was also equivalent (39.7% vs 39.5%). This explains why explicit regularization methods showed no difference—they were operating in a regime where neither method could improve generalization because the model wasn't learning enough to need约束. Similarly, BatchNorm's implicit regularization from batch statistics noise is especially beneficial on small datasets where overfitting risk is high, but provides no advantage (and may even hurt) when the model is fundamentally underfitting.",
+      "supporting_evidence": [
+        "Regularization effects emerge primarily when models are at risk of overfitting; with underfitting (train acc ~48%, val acc ~37%), there is nothing to regularize (confidence=0.85)",
+        "L1 and L2 regularization converge to similar generalization performance under constrained training regimes (confidence=0.8)",
+        "BatchNorm's implicit regularization from batch statistics noise is especially beneficial on small datasets (confidence=0.85)"
+      ],
+      "predictions": [
+        "In underfitting regimes, regularization method comparisons will show null results regardless of what methods are tested",
+        "Increasing model capacity or training duration should increase sensitivity to regularization method choice",
+        "The benefit of implicit regularization (BatchNorm noise) should decrease as dataset size increases beyond the overfitting threshold"
+      ],
+      "scope": "Applies to all forms of regularization (explicit L1/L2, implicit BatchNorm noise, dropout, etc.). The key determinant is whether the model has sufficient capacity and data to exhibit overfitting behavior. Does not apply to optimization-specific effects (like Adam vs SGD) that operate even in underfitting regimes.",
+      "created": "2026-03-11T13:29:03.190606",
+      "version": 1
     }
   ],
-  "last_consolidation": "2026-03-11T07:08:39.568288"
+  "last_consolidation": "2026-03-11T13:29:03.190614"
 }

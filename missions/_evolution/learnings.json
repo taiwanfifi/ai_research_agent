@@ -8,8 +8,8 @@
       "context": "Any sentiment/NLI/topic classification",
       "confidence": 1.0,
       "mission_ids": [],
-      "times_applied": 8,
-      "times_helpful": 8,
+      "times_applied": 9,
+      "times_helpful": 9,
       "created_at": ""
     },
     {
@@ -20,8 +20,8 @@
       "context": "Apple Silicon Mac",
       "confidence": 1.0,
       "mission_ids": [],
-      "times_applied": 8,
-      "times_helpful": 8,
+      "times_applied": 9,
+      "times_helpful": 9,
       "created_at": ""
     },
     {
@@ -32,8 +32,8 @@
       "context": "transformers >= 4.50",
       "confidence": 1.0,
       "mission_ids": [],
-      "times_applied": 8,
-      "times_helpful": 8,
+      "times_applied": 9,
+      "times_helpful": 9,
       "created_at": ""
     },
     {
@@ -44,8 +44,8 @@
       "context": "HuggingFace datasets",
       "confidence": 1.0,
       "mission_ids": [],
-      "times_applied": 8,
-      "times_helpful": 8,
+      "times_applied": 9,
+      "times_helpful": 9,
       "created_at": ""
     },
     {
@@ -56,8 +56,8 @@
       "context": "Model-specific quirks",
       "confidence": 1.0,
       "mission_ids": [],
-      "times_applied": 8,
-      "times_helpful": 8,
+      "times_applied": 9,
+      "times_helpful": 9,
       "created_at": ""
     },
     {
@@ -94,8 +94,8 @@
       "mission_ids": [
         "mission_20260309_021523"
       ],
-      "times_applied": 8,
-      "times_helpful": 8,
+      "times_applied": 9,
+      "times_helpful": 9,
       "created_at": "2026-03-09T04:30:00"
     },
     {
@@ -108,8 +108,8 @@
       "mission_ids": [
         "mission_20260307_135217_implement_and_compare_dropout"
       ],
-      "times_applied": 8,
-      "times_helpful": 8,
+      "times_applied": 9,
+      "times_helpful": 9,
       "created_at": "2026-03-09T11:43:17"
     },
     {
@@ -122,8 +122,8 @@
       "mission_ids": [
         "mission_20260307_135217_implement_and_compare_dropout"
       ],
-      "times_applied": 8,
-      "times_helpful": 8,
+      "times_applied": 9,
+      "times_helpful": 9,
       "created_at": "2026-03-09T11:43:17"
     },
     {
@@ -401,5 +401,5 @@
       "created_at": "2026-03-09T11:43:17"
     }
   ],
-  "updated_at": "2026-03-11T06:54:58"
+  "updated_at": "2026-03-11T13:27:45"
 }
